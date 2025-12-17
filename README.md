@@ -142,4 +142,6 @@ off += n // n is in [16..31]
 
 ## License
 
-MIT license. See `LICENSE`.
+MIT — see [LICENSE](./LICENSE).
+
+©2025 Hayabusa Cloud Co., Ltd.
