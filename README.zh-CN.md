@@ -130,4 +130,6 @@ off += n // n is in [16..31]
 
 ## License
 
-MIT 许可。见 `LICENSE`。
+MIT — 见 [LICENSE](./LICENSE)。
+
+©2025 Hayabusa Cloud Co., Ltd.
