@@ -10,7 +10,7 @@
 // Implements 128-bit compare-and-swap using LOCK CMPXCHG16B.
 //
 // Pre-conditions (assumed, not checked): ptr is 16-byte aligned and points to 16 bytes.
-TEXT ·Cas128Relaxed(SB), NOSPLIT, $16-64
+TEXT ·Cas128Relaxed(SB), NOSPLIT, $16-57
 	// Save callee-saved RBX (required by Go ABI).
 	MOVQ	BX, 0(SP)
 
@@ -34,7 +34,7 @@ TEXT ·Cas128Relaxed(SB), NOSPLIT, $16-64
 	RET
 
 // Cas128Acquire(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128Acquire(SB), NOSPLIT, $16-64
+TEXT ·Cas128Acquire(SB), NOSPLIT, $16-57
 	MOVQ	BX, 0(SP)
 	MOVQ	ptr+0(FP), DI
 	MOVQ	oldLo+8(FP), AX
@@ -51,7 +51,7 @@ TEXT ·Cas128Acquire(SB), NOSPLIT, $16-64
 	RET
 
 // Cas128Release(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128Release(SB), NOSPLIT, $16-64
+TEXT ·Cas128Release(SB), NOSPLIT, $16-57
 	MOVQ	BX, 0(SP)
 	MOVQ	ptr+0(FP), DI
 	MOVQ	oldLo+8(FP), AX
@@ -68,7 +68,7 @@ TEXT ·Cas128Release(SB), NOSPLIT, $16-64
 	RET
 
 // Cas128AcqRel(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128AcqRel(SB), NOSPLIT, $16-64
+TEXT ·Cas128AcqRel(SB), NOSPLIT, $16-57
 	MOVQ	BX, 0(SP)
 	MOVQ	ptr+0(FP), DI
 	MOVQ	oldLo+8(FP), AX
