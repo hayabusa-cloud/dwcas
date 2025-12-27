@@ -6,23 +6,16 @@
 
 package arch
 
-import "sync/atomic"
-
-// compilerBarrierSink is used to force a compiler barrier without emitting an
-// expensive CPU fence on amd64.
+// Pure compiler barriers for amd64.
 //
-// An atomic load is sufficient to prevent compile-time reordering across the
-// call site, while relying on amd64's already-strong CPU ordering.
-var compilerBarrierSink uint32
+// On x86-64 (TSO), LOCK CMPXCHG16B already provides a full CPU barrier.
+// These functions exist solely to prevent compile-time reordering.
 
-func BarrierAcquire() {
-	_ = atomic.LoadUint32(&compilerBarrierSink)
-}
+//go:noinline
+func BarrierAcquire()
 
-func BarrierRelease() {
-	_ = atomic.LoadUint32(&compilerBarrierSink)
-}
+//go:noinline
+func BarrierRelease()
 
-func BarrierFull() {
-	_ = atomic.LoadUint32(&compilerBarrierSink)
-}
+//go:noinline
+func BarrierFull()
