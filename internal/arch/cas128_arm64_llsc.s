@@ -14,7 +14,7 @@
 // - On mismatch, return the observed value immediately (no extra loads).
 
 // Cas128Relaxed(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128Relaxed(SB), NOSPLIT, $0-64
+TEXT ·Cas128Relaxed(SB), NOSPLIT, $0-57
 	MOVD	ptr+0(FP), R8
 	MOVD	oldLo+8(FP), R0
 	MOVD	oldHi+16(FP), R1
@@ -43,7 +43,7 @@ not_eq_llsc_relaxed:
 	RET
 
 // Cas128Acquire(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128Acquire(SB), NOSPLIT, $0-64
+TEXT ·Cas128Acquire(SB), NOSPLIT, $0-57
 	MOVD	ptr+0(FP), R8
 	MOVD	oldLo+8(FP), R0
 	MOVD	oldHi+16(FP), R1
@@ -75,7 +75,7 @@ not_eq_llsc_acquire:
 	RET
 
 // Cas128Release(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128Release(SB), NOSPLIT, $0-64
+TEXT ·Cas128Release(SB), NOSPLIT, $0-57
 	MOVD	ptr+0(FP), R8
 	MOVD	oldLo+8(FP), R0
 	MOVD	oldHi+16(FP), R1
@@ -104,7 +104,7 @@ not_eq_llsc_release:
 	RET
 
 // Cas128AcqRel(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
-TEXT ·Cas128AcqRel(SB), NOSPLIT, $0-64
+TEXT ·Cas128AcqRel(SB), NOSPLIT, $0-57
 	MOVD	ptr+0(FP), R8
 	MOVD	oldLo+8(FP), R0
 	MOVD	oldHi+16(FP), R1
