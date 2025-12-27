@@ -15,14 +15,12 @@ import (
 )
 
 func TestBarriersSmoke(t *testing.T) {
-	atomic.StoreUint32(&compilerBarrierSink, 1)
 	BarrierAcquire()
 	BarrierRelease()
 	BarrierFull()
 }
 
 func TestBarriersTightLoop(t *testing.T) {
-	atomic.StoreUint32(&compilerBarrierSink, 2)
 	for i := 0; i < 1<<18; i++ {
 		BarrierAcquire()
 		BarrierRelease()
@@ -31,8 +29,6 @@ func TestBarriersTightLoop(t *testing.T) {
 }
 
 func TestBarriersConcurrentExercise(t *testing.T) {
-	atomic.StoreUint32(&compilerBarrierSink, 3)
-
 	workers := runtime.GOMAXPROCS(0) * 4
 	if workers < 4 {
 		workers = 4
@@ -42,11 +38,9 @@ func TestBarriersConcurrentExercise(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for w := 0; w < workers; w++ {
-		seed := uint32(w + 1)
 		go func() {
 			defer wg.Done()
 			for i := 0; i < iters; i++ {
-				atomic.AddUint32(&compilerBarrierSink, seed)
 				BarrierAcquire()
 				BarrierRelease()
 				BarrierFull()
