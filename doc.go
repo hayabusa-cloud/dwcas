@@ -72,5 +72,5 @@
 // Arm64 backend selection
 //
 //   - default: LSE pair-CAS (CASP family; CASPAL semantics)
-//   - opt-in: `-tags=dwcas_llsc` (LL/SC via LDAXP/STLXP)
+//   - opt-in: `-tags=dwcas_llsc` (LL/SC via LDXP with STXP or STLXP)
 package dwcas

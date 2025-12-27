@@ -129,7 +129,7 @@ off += n // n is in [16..31]
 - `amd64`: implemented via `CMPXCHG16B`.
 - `arm64`:
   - default: LSE pair-CAS (CASP family) (best performance).
-  - opt-in LL/SC: `-tags=dwcas_llsc` (portable baseline via `LDAXP`/`STLXP`).
+  - opt-in LL/SC: `-tags=dwcas_llsc` (portable baseline via `LDXP` with `STXP` or `STLXP`).
 
 ## Safety notes
 
