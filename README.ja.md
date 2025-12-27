@@ -119,7 +119,7 @@ off += n // n is in [16..31]
 - `amd64`: `CMPXCHG16B` により実装。
 - `arm64`:
   - 既定: LSE pair-CAS（CASP family）（最高性能）。
-  - 任意の LL/SC: `-tags=dwcas_llsc`（`LDAXP`/`STLXP` によるポータブルなベースライン）。
+  - 任意の LL/SC: `-tags=dwcas_llsc`（`LDXP` と `STXP` または `STLXP` によるポータブルなベースライン）。
 
 ## 安全上の注意
 

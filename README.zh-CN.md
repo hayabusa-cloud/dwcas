@@ -119,7 +119,7 @@ off += n // n is in [16..31]
 - `amd64`：通过 `CMPXCHG16B` 实现。
 - `arm64`：
   - 默认：LSE pair-CAS（CASP family）（最佳性能）。
-  - 可选 LL/SC：`-tags=dwcas_llsc`（通过 `LDAXP`/`STLXP` 的可移植基线）。
+  - 可选 LL/SC：`-tags=dwcas_llsc`（通过 `LDXP` 配合 `STXP` 或 `STLXP` 的可移植基线）。
 
 ## 安全注意事项
 
