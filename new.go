@@ -64,13 +64,13 @@ func PlaceAlignedUint128(p []byte, off int) (n int, u128 *Uint128) {
 		panic("dwcas: PlaceAlignedUint128: insufficient space")
 	}
 
-	base := uintptr(unsafe.Pointer(unsafe.SliceData(p)))
-	start := base + uintptr(off)
+	// Use unsafe.Add to maintain pointer provenance (avoids go vet warning).
+	startPtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off)
+	startAddr := uintptr(startPtr)
 
-	aligned := (start + 15) &^ uintptr(15) // round up to 16-byte boundary
-	pad := int(aligned - start)            // 0..15
-	n = pad + 16                           // 16..31
+	pad := int((16 - (startAddr & 15)) & 15) // 0..15
+	n = pad + 16                             // 16..31
 
-	u128 = (*Uint128)(unsafe.Pointer(aligned))
+	u128 = (*Uint128)(unsafe.Add(startPtr, pad))
 	return n, u128
 }
