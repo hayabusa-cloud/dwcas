@@ -16,7 +16,7 @@ dwcas provides double-word compare-and-swap (128-bit CAS) primitives for Go on a
 - `CASPD` alone is relaxed; ordering requires:
   - `DMB ISHST` ($0xA) for release semantics before
   - `DMB ISHLD` ($0x9) for acquire semantics after
-- Go assembler doesn't support ordered variants (CASPALD)
+- Go assembler doesn't support ordered variants (CASPAL/CASPALD)
 
 ## Memory Ordering Semantics
 
