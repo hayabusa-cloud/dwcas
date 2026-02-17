@@ -19,7 +19,7 @@ func BenchmarkCAS_Single(b *testing.B) {
 	c := dwcas.Uint128{Lo: 1, Hi: 1}
 
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		// Toggle between two states to avoid Go-level loads.
 		for {
 			if _, ok := p.Relaxed(a, c); ok {
@@ -43,7 +43,7 @@ func BenchmarkPlaceAlignedUint128(b *testing.B) {
 
 	b.ReportAllocs()
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		n, p := dwcas.PlaceAlignedUint128(buf, off)
 		p.Lo = uint64(i)
 		p.Hi = uint64(i)
@@ -84,7 +84,7 @@ func BenchmarkCAS_VersionedBump_Single(b *testing.B) {
 	p := dwcas.New(0, 0)
 
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		old := *p
 		newv := dwcas.Uint128{Lo: old.Lo + 1, Hi: old.Hi + 1}
 		for {
@@ -105,7 +105,7 @@ func BenchmarkAtomicUint64Pair_Baseline(b *testing.B) {
 	// the overhead of contention and CAS loops.
 	var lo, hi uint64
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		oldLo := atomic.LoadUint64(&lo)
 		oldHi := atomic.LoadUint64(&hi)
 		_ = atomic.CompareAndSwapUint64(&lo, oldLo, oldLo+1)
