@@ -21,7 +21,7 @@ func TestBarriersSmoke(t *testing.T) {
 }
 
 func TestBarriersTightLoop(t *testing.T) {
-	for i := 0; i < 1<<18; i++ {
+	for range 1 << 18 {
 		BarrierAcquire()
 		BarrierRelease()
 		BarrierFull()
@@ -39,11 +39,11 @@ func TestBarriersConcurrentExercise(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(workers)
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		seed := uint32(w + 1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < iters; i++ {
+			for range iters {
 				sink.Add(seed)
 				BarrierAcquire()
 				BarrierRelease()
