@@ -28,7 +28,6 @@ func TestCanPlaceAlignedUint128(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			if got := dwcas.CanPlaceAlignedUint128(tt.p, tt.off); got != tt.want {
 				t.Fatalf("CanPlaceAlignedUint128(len=%d, off=%d) = %v, want %v", len(tt.p), tt.off, got, tt.want)
@@ -58,7 +57,6 @@ func TestPlaceAlignedUint128_AlignmentAndBounds(t *testing.T) {
 
 	offs := []int{0, 1, 7, 15, 16, 31, 32, 63, 97, 128, 225}
 	for _, off := range offs {
-		off := off
 		t.Run("off="+itoa(off), func(t *testing.T) {
 			if !dwcas.CanPlaceAlignedUint128(buf, off) {
 				// Skip offsets that are out of range for this fixed buffer.

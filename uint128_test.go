@@ -108,10 +108,10 @@ func TestCAS_Contention_Toggle(t *testing.T) {
 	go func() {
 		var wg sync.WaitGroup
 		wg.Add(goroutines)
-		for g := 0; g < goroutines; g++ {
+		for range goroutines {
 			go func() {
 				defer wg.Done()
-				for i := 0; i < iters; i++ {
+				for range iters {
 					for {
 						if _, ok := p.Relaxed(a, b); ok {
 							break
