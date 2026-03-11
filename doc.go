@@ -45,7 +45,8 @@
 // This package also exposes manual barriers ([BarrierAcquire], [BarrierRelease],
 // [BarrierFull]) for callers who need an explicit ordering edge outside the CAS
 // primitives. On arm64 they map to DMB ISH*; on amd64 they are compiler barriers
-// (not MFENCE).
+// (not MFENCE). On unsupported architectures, these barrier helpers panic at
+// runtime, like the CAS methods.
 //
 // # Alignment
 //
@@ -67,7 +68,8 @@
 //   - amd64: implemented via CMPXCHG16B.
 //   - arm64: implemented via either LSE pair-CAS (CASP family; default) or
 //     LL/SC (opt-in).
-//   - other architectures: building succeeds, but all CAS methods panic at runtime.
+//   - other architectures: building succeeds, but all CAS methods and manual
+//     barriers panic at runtime.
 //
 // Arm64 backend selection
 //
