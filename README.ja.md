@@ -1,7 +1,7 @@
 # dwcas
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/hayabusa-cloud/dwcas.svg)](https://pkg.go.dev/github.com/hayabusa-cloud/dwcas)
-[![Go Report Card](https://goreportcard.com/badge/github.com/hayabusa-cloud/dwcas)](https://goreportcard.com/report/github.com/hayabusa-cloud/dwcas)
+[![Go Reference](https://pkg.go.dev/badge/code.hybscloud.com/dwcas.svg)](https://pkg.go.dev/code.hybscloud.com/dwcas)
+[![Go Report Card](https://goreportcard.com/badge/code.hybscloud.com/dwcas)](https://goreportcard.com/report/code.hybscloud.com/dwcas)
 [![Codecov](https://codecov.io/gh/hayabusa-cloud/dwcas/graph/badge.svg)](https://codecov.io/gh/hayabusa-cloud/dwcas)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -68,10 +68,10 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 | メソッド | 成功 | 失敗 |
 |----------|------|------|
-| `dwcas.Relaxed` | relaxed | relaxed |
-| `dwcas.Acquire` | acquire | relaxed |
-| `dwcas.Release` | release | relaxed |
-| `dwcas.AcqRel`  | acq_rel | relaxed |
+| `(*Uint128).Relaxed` | relaxed | relaxed |
+| `(*Uint128).Acquire` | acquire | relaxed |
+| `(*Uint128).Release` | release | relaxed |
+| `(*Uint128).AcqRel`  | acq_rel | relaxed |
 
 補足:
 
