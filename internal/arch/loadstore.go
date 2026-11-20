@@ -7,13 +7,7 @@
 package arch
 
 //go:noescape
-func LoadRelaxed(ptr *Pair) (value Pair)
-
-//go:noescape
 func LoadAcquire(ptr *Pair) (value Pair)
-
-//go:noescape
-func StoreRelaxed(ptr *Pair, value Pair)
 
 //go:noescape
 func StoreRelease(ptr *Pair, value Pair)

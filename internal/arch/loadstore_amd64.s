@@ -7,39 +7,28 @@
 #include "textflag.h"
 
 // Use zero for both expected and desired so either outcome preserves memory.
-#define LOAD_PAIR \
-	MOVQ ptr+0(FP), DI; \
-	XORL AX, AX; \
-	XORL DX, DX; \
-	XORL BX, BX; \
-	XORL CX, CX; \
-	LOCK; \
-	CMPXCHG16B (DI); \
-	MOVQ AX, value_Lo+8(FP); \
-	MOVQ DX, value_Hi+16(FP); \
+TEXT ·LoadAcquire(SB), NOSPLIT, $0-24
+	MOVQ	ptr+0(FP), DI
+	XORL	AX, AX
+	XORL	DX, DX
+	XORL	BX, BX
+	XORL	CX, CX
+	LOCK
+	CMPXCHG16B	(DI)
+	MOVQ	AX, value_Lo+8(FP)
+	MOVQ	DX, value_Hi+16(FP)
 	RET
 
 // Seed the comparison with ordinary loads. CMPXCHG16B validates both
 // words together and supplies the next expected pair on a mismatch.
-#define STORE_PAIR \
-	MOVQ ptr+0(FP), DI; \
-	MOVQ value_Lo+8(FP), BX; \
-	MOVQ value_Hi+16(FP), CX; \
-	MOVQ (DI), AX; \
-	MOVQ 8(DI), DX; \
-	retry: LOCK; \
-	CMPXCHG16B (DI); \
-	JNE retry; \
-	RET
-
-TEXT ·LoadRelaxed(SB), NOSPLIT, $0-24
-	LOAD_PAIR
-
-TEXT ·LoadAcquire(SB), NOSPLIT, $0-24
-	LOAD_PAIR
-
-TEXT ·StoreRelaxed(SB), NOSPLIT, $0-24
-	STORE_PAIR
-
 TEXT ·StoreRelease(SB), NOSPLIT, $0-24
-	STORE_PAIR
+	MOVQ	ptr+0(FP), DI
+	MOVQ	value_Lo+8(FP), BX
+	MOVQ	value_Hi+16(FP), CX
+	MOVQ	(DI), AX
+	MOVQ	8(DI), DX
+retry:
+	LOCK
+	CMPXCHG16B	(DI)
+	JNE	retry
+	RET

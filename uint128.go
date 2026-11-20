@@ -30,22 +30,10 @@ type Uint128 struct {
 	Hi uint64
 }
 
-// LoadRelaxed atomically loads the pair with relaxed ordering.
-func (p *Uint128) LoadRelaxed() Uint128 {
-	checkAligned(p)
-	return arch.LoadRelaxed((*arch.Pair)(p))
-}
-
 // LoadAcquire atomically loads the pair with acquire ordering.
 func (p *Uint128) LoadAcquire() Uint128 {
 	checkAligned(p)
 	return arch.LoadAcquire((*arch.Pair)(p))
-}
-
-// StoreRelaxed atomically stores value with relaxed ordering.
-func (p *Uint128) StoreRelaxed(value Uint128) {
-	checkAligned(p)
-	arch.StoreRelaxed((*arch.Pair)(p), value)
 }
 
 // StoreRelease atomically stores value with release ordering.
