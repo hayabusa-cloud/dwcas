@@ -7,13 +7,13 @@
 
 语言： [English](README.md) | **简体中文** | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-为 Go 提供可移植的 128 位（双字）比较并交换（CAS）原语。
+为 Go 提供 128 位（双字）原子加载、存储和比较交换（CAS）操作。
 
 ## 一览
 
 - 在 `amd64` / `arm64` 上提供单次原子 128 位 CAS。
 - 面向无锁算法（版本化状态、ABA 缓解、复合更新）。
-- `arm64` 默认使用 LSE pair-CAS 快路径；也提供 LL/SC（通过 build tag）用于兼容性。
+- arm64 默认构建要求 FEAT_LSE2。较早的 CPU 请使用 `-tags=dwcas_llsc`。
 
 ## 安装
 
@@ -31,7 +31,7 @@ old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.Lo, v.Hi)
+fmt.Println(prev, swapped, v.LoadRelaxed())
 ```
 
 ## API
@@ -40,11 +40,16 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 - `type Uint128 struct { Lo uint64; Hi uint64 }`
 
-### Compare-exchange 方法
+### 加载与存储
 
-`*dwcas.Uint128` 上的每个方法，都是以 compare-exchange 形式提供的 128 位 CAS。
+- `LoadRelaxed() Uint128` 和 `LoadAcquire() Uint128` 返回同一时刻的完整双字值。
+- `StoreRelaxed(value Uint128)` 和 `StoreRelease(value Uint128)` 以一次原子操作替换两个字。
 
-所有方法返回：
+### CAS 方法
+
+四个 `Try` 方法接收 `(old, new Uint128)` 并返回 `bool`。`false` 表示观察到的值与 `old` 不同。arm64 LL/SC 后端在值匹配但独占预留失效时重试，因此单次调用的步数没有固定上限。
+
+四个 compare-exchange 方法还会返回观测到的完整值对。
 
 - `prev`：本次 CAS 尝试时，在内存中观察到的值
 - `swapped`：若发生交换则为 `true`
@@ -64,20 +69,20 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 ## 内存序（memory ordering）
 
-每个方法都指定内存序；并且 **成功序** 与 **失败序** 可能不同：
+CAS 方法分别指定成功和失败时的内存序。
 
 | 方法 | 成功 | 失败 |
 |------|------|------|
-| `(*Uint128).Relaxed` | relaxed | relaxed |
-| `(*Uint128).Acquire` | acquire | relaxed |
-| `(*Uint128).Release` | release | relaxed |
-| `(*Uint128).AcqRel`  | acq_rel | relaxed |
+| `(*Uint128).Relaxed`, `(*Uint128).TryRelaxed` | relaxed | relaxed |
+| `(*Uint128).Acquire`, `(*Uint128).TryAcquire` | acquire | relaxed |
+| `(*Uint128).Release`, `(*Uint128).TryRelease` | release | relaxed |
+| `(*Uint128).AcqRel`, `(*Uint128).TryAcqRel`  | acq_rel | relaxed |
 
 说明：
 
 - 某些后端可能比请求的更强。
   - 在 `amd64` 上，带 `LOCK` 的操作在成功与失败上至少是 acquire-release。
-  - 在 `arm64` 默认（LSE）构建中，`Release`/`AcqRel` 会在 CAS 前放置 release barrier，这也会对失败尝试产生排序效果。
+  - 在 arm64 上，具有 acquire 语义的 CAS 方法在比较失败时也具有 acquire 语义。
 
 ### 手动屏障（manual barriers）
 
@@ -89,12 +94,12 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 ## 对齐要求
 
-对这些方法使用的 `*dwcas.Uint128` 地址必须 16 字节对齐，并且指针必须非 nil。
+接收者必须指向 16 字节对齐的可写内存。在 arm64 默认后端上，加载和存储要求使用 Inner 和 Outer 均为 Write-Back 的 Normal 内存，例如 Go 堆内存。加载或失败的 CAS 也可能写回观察到的值。
 
 - 默认构建不做运行时检查。
 - 可选调试保护：使用 `-tags=dwcasdebug` 构建，在 nil 或未对齐时触发 panic。
 
-如果你需要一个堆分配且 16 字节对齐的 `*Uint128`，请使用 `dwcas.New`。
+使用 `dwcas.New` 可在 Go 管理的内存中分配按 16 字节对齐的 `*Uint128`。
 
 如果你需要把 `*Uint128` 放在调用方提供的 byte buffer 中（例如手写 arena），请使用 placement helpers。从 `off` 开始的最坏剩余字节需求为 31。
 
@@ -116,10 +121,11 @@ off += n // n is in [16..31]
 
 ## 支持的架构与后端
 
-- `amd64`：通过 `CMPXCHG16B` 实现。
+- 在 `amd64` 上，CAS 和默认的加载操作使用 `LOCK CMPXCHG16B`。默认的存储操作在比较失败时重试。
+  - 对于读密集型负载，使用 `-tags=dwcas_avx` 后，每次独立加载或存储只需一条对齐的 `VMOVDQA` 指令访问目标。操作系统须启用 AVX，且 CPU 须保证对写回内存中按 16 字节对齐的 16 字节向量访问具有原子性。
 - `arm64`：
-  - 默认：LSE pair-CAS（CASP family）（最佳性能）。
-  - 可选 LL/SC：`-tags=dwcas_llsc`（通过 `LDXP` 配合 `STXP` 或 `STLXP` 的可移植基线）。
+  - 宽松加载和存储使用 `LDP` 和 `STP`。获取加载在 `LDP` 后执行 `DMB ISHLD`，释放存储在 `STP` 前执行 `DMB ISH`。CAS 使用 LSE 的 `CASP` 系列指令。
+  - 可选 LL/SC：`-tags=dwcas_llsc`（通过 `LDXP`/`LDAXP` 配合 `STXP` 或 `STLXP` 的可移植基线）。
 
 ## 安全注意事项
 

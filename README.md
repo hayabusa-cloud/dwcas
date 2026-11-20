@@ -7,13 +7,13 @@
 
 **Languages:** English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md)
 
-Portable 128-bit (double-word) compare-and-swap (CAS) primitive for Go.
+128-bit (double-word) atomic loads, stores, and compare-and-swap (CAS) for Go.
 
 ## At a glance
 
 - Single atomic 128-bit compare-and-swap (CAS) on amd64/arm64.
 - Intended for lock-free algorithms (versioned state, ABA mitigation, composite updates).
-- Arm64 uses an LSE pair-CAS fast path by default; LL/SC is available via build tag for compatibility.
+- Default arm64 builds target FEAT_LSE2 for atomic pair loads and stores. Use `-tags=dwcas_llsc` on older CPUs.
 
 ## Install
 
@@ -31,7 +31,7 @@ old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.Lo, v.Hi)
+fmt.Println(prev, swapped, v.LoadRelaxed())
 ```
 
 ## APIs
@@ -40,12 +40,16 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 - `type Uint128 struct { Lo uint64; Hi uint64 }`
 
-### Compare-exchange methods
+### Loads and stores
 
-Each method on `*dwcas.Uint128` is a 128-bit compare-and-swap in compare-exchange
-form.
+- `LoadRelaxed() Uint128` and `LoadAcquire() Uint128` return one coherent pair.
+- `StoreRelaxed(value Uint128)` and `StoreRelease(value Uint128)` replace both words atomically.
 
-All methods return:
+### Compare-and-swap methods
+
+The four `Try` methods take `(old, new Uint128)` and return `bool`. A false result means the value differed from `old`. On arm64 LL/SC, a matching comparison retries if the reservation is lost, so a call has no fixed step bound.
+
+The four compare-exchange methods also return the observed pair.
 
 - `prev`: the value observed in memory at the time of the CAS attempt
 - `swapped`: `true` if the swap happened
@@ -65,23 +69,21 @@ Methods:
 
 ## Memory ordering
 
-Ordering is specified per method, with **success ordering** potentially different
-from **failure ordering**:
+The CAS methods specify separate success and failure orderings.
 
 | Method          | Success | Failure |
 |-----------------|---|---|
-| `(*Uint128).Relaxed` | relaxed | relaxed |
-| `(*Uint128).Acquire` | acquire | relaxed |
-| `(*Uint128).Release` | release | relaxed |
-| `(*Uint128).AcqRel`  | acq_rel | relaxed |
+| `(*Uint128).Relaxed`, `(*Uint128).TryRelaxed` | relaxed | relaxed |
+| `(*Uint128).Acquire`, `(*Uint128).TryAcquire` | acquire | relaxed |
+| `(*Uint128).Release`, `(*Uint128).TryRelease` | release | relaxed |
+| `(*Uint128).AcqRel`, `(*Uint128).TryAcqRel`  | acq_rel | relaxed |
 
 Notes:
 
 - Some backends are stronger than requested.
   - On `amd64`, `LOCK`ed operations are at least acquire-release on both success
     and failure.
-  - On `arm64` default (LSE) builds, `Release`/`AcqRel` place a release barrier
-    before the CAS, which also orders a failed attempt.
+  - On arm64, CAS methods with acquire ordering also acquire on a mismatch.
 
 ### Manual barriers
 
@@ -96,13 +98,12 @@ primitives. `dwcas` provides three manual barriers:
 
 ## Alignment requirement
 
-The address of a `*dwcas.Uint128` used with these methods must be 16-byte aligned.
-The pointer must also be non-nil.
+The receiver must point to writable, 16-byte-aligned memory. Default arm64 loads and stores require Normal memory with Inner and Outer Write-Back cacheability, as in the Go heap. A load or failed CAS may write back the observed value. Use the atomic methods for concurrent access.
 
 - Default builds perform no runtime checks.
 - Opt-in debug guard: build with `-tags=dwcasdebug` to panic on nil and misaligned pointers.
 
-Use `dwcas.New` if you need a heap-allocated 16-byte aligned `*Uint128`.
+Use `dwcas.New` to allocate a 16-byte-aligned `*Uint128` in Go-managed memory.
 
 If you need to place a `*Uint128` inside a caller-provided byte buffer (for
 example, in a manually managed arena), use the placement helpers. Worst-case
@@ -126,10 +127,11 @@ off += n // n is in [16..31]
 
 ## Supported architectures and backends
 
-- `amd64`: implemented via `CMPXCHG16B`.
+- On `amd64`, CAS and default pair loads use `LOCK CMPXCHG16B`. Default stores retry on a mismatch.
+  - For read-heavy workloads, `-tags=dwcas_avx` uses one aligned `VMOVDQA` per standalone load or store. The OS must enable AVX and the CPU must guarantee atomic aligned 16-byte vector accesses to write-back memory.
 - `arm64`:
-  - default: LSE pair-CAS (CASP family) (best performance).
-  - opt-in LL/SC: `-tags=dwcas_llsc` (portable baseline via `LDXP` with `STXP` or `STLXP`).
+  - Default builds use `LDP` and `STP` for relaxed pair access. Acquire loads add `DMB ISHLD` after the load. Release stores add `DMB ISH` before the store. CAS uses the LSE `CASP` family.
+  - opt-in LL/SC: `-tags=dwcas_llsc` (portable baseline via `LDXP`/`LDAXP` with `STXP` or `STLXP`).
 
 ## Safety notes
 

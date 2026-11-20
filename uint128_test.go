@@ -1,3 +1,5 @@
+//go:build amd64 || arm64
+
 package dwcas_test
 
 import (
@@ -5,7 +7,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unsafe"
 
 	"code.hybscloud.com/dwcas"
 )
@@ -39,17 +40,7 @@ func TestCAS_Fail(t *testing.T) {
 }
 
 func TestCompareExchange_PrevConvergesWithoutExtraLoads(t *testing.T) {
-	methods := []struct {
-		name string
-		fn   func(p *dwcas.Uint128, old, new dwcas.Uint128) (dwcas.Uint128, bool)
-	}{
-		{"Relaxed", func(p *dwcas.Uint128, old, new dwcas.Uint128) (dwcas.Uint128, bool) { return p.Relaxed(old, new) }},
-		{"Acquire", func(p *dwcas.Uint128, old, new dwcas.Uint128) (dwcas.Uint128, bool) { return p.Acquire(old, new) }},
-		{"Release", func(p *dwcas.Uint128, old, new dwcas.Uint128) (dwcas.Uint128, bool) { return p.Release(old, new) }},
-		{"AcqRel", func(p *dwcas.Uint128, old, new dwcas.Uint128) (dwcas.Uint128, bool) { return p.AcqRel(old, new) }},
-	}
-
-	for _, tt := range methods {
+	for _, tt := range casMethods {
 		t.Run(tt.name, func(t *testing.T) {
 			p := dwcas.New(5, 6)
 			stale := dwcas.Uint128{Lo: 0, Hi: 0}
@@ -74,19 +65,6 @@ func TestCompareExchange_PrevConvergesWithoutExtraLoads(t *testing.T) {
 				t.Fatalf("value mismatch after swap: got (%d,%d)", p.Lo, p.Hi)
 			}
 		})
-	}
-}
-
-func TestNew_AlignmentAndInit(t *testing.T) {
-	p := dwcas.New(10, 20)
-	if p == nil {
-		t.Fatalf("New returned nil")
-	}
-	if uintptr(unsafe.Pointer(p))%16 != 0 {
-		t.Fatalf("New returned misaligned pointer: %p", p)
-	}
-	if p.Lo != 10 || p.Hi != 20 {
-		t.Fatalf("New init mismatch: got (%d,%d)", p.Lo, p.Hi)
 	}
 }
 

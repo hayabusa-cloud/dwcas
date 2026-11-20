@@ -2,8 +2,7 @@ package dwcas
 
 import "unsafe"
 
-// New returns a heap-allocated *Uint128 whose address is guaranteed to be 16-byte
-// aligned.
+// New returns a 16-byte-aligned *Uint128 initialized with lo and hi.
 //
 // This is primarily a convenience for algorithms that require 16-byte alignment
 // but do not control allocator/layout details (e.g. when a Uint128 cannot be
@@ -14,21 +13,15 @@ import "unsafe"
 //     (do not convert it to uintptr and back).
 //   - Alignment is guaranteed, but only for the returned pointer itself. If you copy
 //     the value into another location, you must re-establish 16-byte alignment.
-//
-//go:nocheckptr
 func New(lo, hi uint64) *Uint128 {
-	// A []uint64 data pointer is always 8-byte aligned, so the only possible
-	// 16-byte misalignment is +8. Allocating 3 words guarantees space for an
-	// aligned 2-word window.
-	mem := make([]uint64, 3)
-	base := uintptr(unsafe.Pointer(unsafe.SliceData(mem)))
-	pad := (uintptr(16) - (base & uintptr(15))) & uintptr(15) // 0 or 8
-	off := pad >> 3                                           // 0 or 1 (words)
-	u128 := mem[off : off+2]
-
-	p := (*Uint128)(unsafe.Pointer(unsafe.SliceData(u128)))
-	p.Lo = lo
-	p.Hi = hi
+	// The backing object has Uint128's natural alignment. At most
+	// 16 - Alignof(Uint128{}) bytes precede the next 16-byte boundary.
+	var storage struct {
+		_ [16 - unsafe.Alignof(Uint128{})]byte
+		Uint128
+	}
+	_, p := placeAligned(unsafe.Pointer(&storage))
+	*p = Uint128{Lo: lo, Hi: hi}
 	return p
 }
 
@@ -57,20 +50,15 @@ func CanPlaceAlignedUint128(p []byte, off int) bool {
 // Safety notes:
 //   - The returned pointer refers to p's backing array. Keep p reachable.
 //   - Do not convert the returned pointer to uintptr and back.
-//
-//go:nocheckptr
 func PlaceAlignedUint128(p []byte, off int) (n int, u128 *Uint128) {
 	if !CanPlaceAlignedUint128(p, off) {
 		panic("dwcas: PlaceAlignedUint128: insufficient space")
 	}
 
-	// Use unsafe.Add to maintain pointer provenance (avoids go vet warning).
-	startPtr := unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off)
-	startAddr := uintptr(startPtr)
+	return placeAligned(unsafe.Add(unsafe.Pointer(unsafe.SliceData(p)), off))
+}
 
-	pad := int((16 - (startAddr & 15)) & 15) // 0..15
-	n = pad + 16                             // 16..31
-
-	u128 = (*Uint128)(unsafe.Add(startPtr, pad))
-	return n, u128
+func placeAligned(start unsafe.Pointer) (int, *Uint128) {
+	pad := -uintptr(start) & 15
+	return int(pad) + 16, (*Uint128)(unsafe.Add(start, pad))
 }

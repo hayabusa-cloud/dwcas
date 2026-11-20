@@ -7,13 +7,13 @@
 
 Langues : [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | **Français**
 
-Primitive portable de compare-and-swap (CAS) 128 bits (double-mot) pour Go.
+Chargements, écritures et compare-and-swap (CAS) atomiques de 128 bits pour Go.
 
 ## En bref
 
 - CAS 128 bits atomique en une seule opération sur `amd64`/`arm64`.
 - Conçu pour les algorithmes lock-free (état versionné, mitigation ABA, mises à jour composites).
-- Sur `arm64`, le chemin rapide LSE pair-CAS est utilisé par défaut ; LL/SC est disponible via un build tag pour la compatibilité.
+- Sur arm64, la compilation par défaut cible FEAT_LSE2. Pour les processeurs plus anciens, utilisez `-tags=dwcas_llsc`.
 
 ## Installation
 
@@ -31,7 +31,7 @@ old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.Lo, v.Hi)
+fmt.Println(prev, swapped, v.LoadRelaxed())
 ```
 
 ## APIs
@@ -40,11 +40,16 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 - `type Uint128 struct { Lo uint64; Hi uint64 }`
 
-### Méthodes compare-exchange
+### Chargements et écritures
 
-Chaque méthode sur `*dwcas.Uint128` est un CAS 128 bits sous forme compare-exchange.
+- `LoadRelaxed() Uint128` et `LoadAcquire() Uint128` renvoient la paire en une seule lecture atomique.
+- `StoreRelaxed(value Uint128)` et `StoreRelease(value Uint128)` remplacent les deux mots en une seule écriture atomique.
 
-Toutes les méthodes renvoient :
+### Méthodes de comparaison et d’échange
+
+Les quatre méthodes `Try` prennent `(old, new Uint128)` et renvoient un `bool`. Un résultat `false` indique que la valeur différait de `old`. Sur arm64 avec LL/SC, si les valeurs correspondent et que la réservation est perdue, la méthode réessaie. Le nombre d’étapes par appel est donc sans borne fixe.
+
+Les quatre méthodes compare-exchange renvoient aussi la paire observée.
 
 - `prev` : la valeur observée en mémoire au moment de la tentative de CAS
 - `swapped` : `true` si l'échange a eu lieu
@@ -64,20 +69,20 @@ Méthodes :
 
 ## Ordonnancement mémoire
 
-L'ordonnancement est défini par méthode, et **l'ordonnancement en succès** peut différer de **l'ordonnancement en échec** :
+Les méthodes CAS spécifient séparément les ordres mémoire en cas de succès et d’échec.
 
 | Méthode | Succès | Échec |
 |---------|--------|-------|
-| `(*Uint128).Relaxed` | relaxed | relaxed |
-| `(*Uint128).Acquire` | acquire | relaxed |
-| `(*Uint128).Release` | release | relaxed |
-| `(*Uint128).AcqRel`  | acq_rel | relaxed |
+| `(*Uint128).Relaxed`, `(*Uint128).TryRelaxed` | relaxed | relaxed |
+| `(*Uint128).Acquire`, `(*Uint128).TryAcquire` | acquire | relaxed |
+| `(*Uint128).Release`, `(*Uint128).TryRelease` | release | relaxed |
+| `(*Uint128).AcqRel`, `(*Uint128).TryAcqRel`  | acq_rel | relaxed |
 
 Notes :
 
 - Certains backends peuvent être plus forts que demandé.
   - Sur `amd64`, les opérations `LOCK` sont au minimum acquire-release en succès comme en échec.
-  - Sur `arm64` (LSE par défaut), `Release`/`AcqRel` placent une barrière release avant le CAS, ce qui ordonne aussi une tentative échouée.
+  - Sur arm64, les méthodes CAS avec sémantique acquire la conservent en cas d’échec de la comparaison.
 
 ### Barrières manuelles
 
@@ -89,12 +94,12 @@ Dans de rares cas, l'appelant peut avoir besoin d'une arête d'ordonnancement ex
 
 ## Exigence d'alignement
 
-L'adresse du `*dwcas.Uint128` utilisé avec ces méthodes doit être alignée sur 16 octets. Le pointeur doit aussi être non nil.
+Le récepteur doit pointer vers une zone accessible en écriture et alignée sur 16 octets. Sur arm64, les chargements et écritures du backend par défaut exigent une mémoire Normal avec les attributs Inner et Outer Write-Back, comme celle du tas Go. Un chargement ou un CAS en échec peut réécrire la valeur observée.
 
 - Les builds par défaut n'effectuent aucune vérification à l'exécution.
 - Garde de debug optionnelle : compiler avec `-tags=dwcasdebug` pour déclencher un panic sur pointeur nil ou mal aligné.
 
-Utilisez `dwcas.New` si vous avez besoin d'un `*Uint128` alloué sur le heap et aligné sur 16 octets.
+Utilisez `dwcas.New` pour allouer un `*Uint128` aligné sur 16 octets dans la mémoire gérée par Go.
 
 Si vous devez placer un `*Uint128` dans un buffer de bytes fourni par l'appelant (par exemple, dans une arène gérée manuellement), utilisez les helpers de placement. Le pire cas de bytes restants requis à partir de `off` est 31.
 
@@ -116,10 +121,11 @@ off += n // n is in [16..31]
 
 ## Architectures et backends supportés
 
-- `amd64` : implémenté via `CMPXCHG16B`.
+- Sur `amd64`, le CAS et les lectures par défaut utilisent `LOCK CMPXCHG16B`. Les écritures par défaut sont retentées si la comparaison échoue.
+  - Pour les charges à forte proportion de lectures, `-tags=dwcas_avx` utilise une instruction `VMOVDQA` alignée par lecture ou écriture indépendante. Le système doit activer AVX et le processeur doit garantir l’atomicité des accès vectoriels alignés de 16 octets en mémoire write-back.
 - `arm64` :
-  - par défaut : LSE pair-CAS (famille CASP) (meilleures performances).
-  - LL/SC optionnel : `-tags=dwcas_llsc` (base portable via `LDXP` avec `STXP` ou `STLXP`).
+  - Les accès relâchés utilisent `LDP` et `STP`. Un chargement acquire ajoute `DMB ISHLD` après `LDP`. Une écriture release ajoute `DMB ISH` avant `STP`. Le CAS utilise la famille `CASP` de LSE.
+  - LL/SC optionnel : `-tags=dwcas_llsc` (base portable via `LDXP`/`LDAXP` avec `STXP` ou `STLXP`).
 
 ## Notes de sécurité
 

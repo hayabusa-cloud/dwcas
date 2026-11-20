@@ -7,13 +7,13 @@
 
 Idiomas: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | **Español** | [Français](README.fr.md)
 
-Primitiva portable de compare-and-swap (CAS) de 128 bits (doble palabra) para Go.
+Cargas, escrituras y compare-and-swap (CAS) atómicos de 128 bits para Go.
 
 ## De un vistazo
 
 - CAS atómico único de 128 bits en `amd64`/`arm64`.
 - Diseñado para algoritmos lock-free (estado versionado, mitigación ABA, actualizaciones compuestas).
-- En `arm64` usa por defecto una ruta rápida LSE pair-CAS; LL/SC está disponible mediante build tag por compatibilidad.
+- En arm64, la compilación predeterminada requiere FEAT_LSE2. Para CPU anteriores, usa `-tags=dwcas_llsc`.
 
 ## Instalación
 
@@ -31,7 +31,7 @@ old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.Lo, v.Hi)
+fmt.Println(prev, swapped, v.LoadRelaxed())
 ```
 
 ## APIs
@@ -40,11 +40,16 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 - `type Uint128 struct { Lo uint64; Hi uint64 }`
 
-### Métodos compare-exchange
+### Cargas y escrituras
 
-Cada método de `*dwcas.Uint128` es un CAS de 128 bits en forma compare-exchange.
+- `LoadRelaxed() Uint128` y `LoadAcquire() Uint128` devuelven el par en una sola lectura atómica.
+- `StoreRelaxed(value Uint128)` y `StoreRelease(value Uint128)` reemplazan ambas palabras de forma atómica.
 
-Todos los métodos devuelven:
+### Métodos de comparación e intercambio
+
+Los cuatro métodos `Try` reciben `(old, new Uint128)` y devuelven un `bool`. Un resultado `false` indica que el valor difería de `old`. En arm64 con LL/SC, una comparación coincidente se reintenta si se pierde la reserva, por lo que una llamada carece de un límite fijo de pasos.
+
+Los cuatro métodos compare-exchange también devuelven el par observado.
 
 - `prev`: el valor observado en memoria en el momento del intento de CAS
 - `swapped`: `true` si el intercambio ocurrió
@@ -64,20 +69,20 @@ Métodos:
 
 ## Orden de memoria
 
-El orden se especifica por método, con **orden en éxito** potencialmente distinto del **orden en fallo**:
+Los métodos CAS especifican por separado el orden en caso de éxito y de fallo.
 
 | Método | Éxito | Fallo |
 |--------|-------|-------|
-| `(*Uint128).Relaxed` | relaxed | relaxed |
-| `(*Uint128).Acquire` | acquire | relaxed |
-| `(*Uint128).Release` | release | relaxed |
-| `(*Uint128).AcqRel`  | acq_rel | relaxed |
+| `(*Uint128).Relaxed`, `(*Uint128).TryRelaxed` | relaxed | relaxed |
+| `(*Uint128).Acquire`, `(*Uint128).TryAcquire` | acquire | relaxed |
+| `(*Uint128).Release`, `(*Uint128).TryRelease` | release | relaxed |
+| `(*Uint128).AcqRel`, `(*Uint128).TryAcqRel`  | acq_rel | relaxed |
 
 Notas:
 
 - Algunos backends son más fuertes de lo solicitado.
   - En `amd64`, las operaciones con `LOCK` son al menos acquire-release tanto en éxito como en fallo.
-  - En `arm64` (LSE por defecto), `Release`/`AcqRel` colocan una barrera release antes del CAS, lo que también ordena un intento fallido.
+  - En arm64, los métodos CAS con semántica acquire la mantienen cuando falla la comparación.
 
 ### Barreras manuales
 
@@ -89,12 +94,12 @@ En casos raros, el usuario puede necesitar una arista de orden explícita fuera 
 
 ## Requisito de alineación
 
-La dirección de `*dwcas.Uint128` usada con estos métodos debe estar alineada a 16 bytes. El puntero también debe ser no nulo.
+El receptor debe apuntar a memoria escribible alineada a 16 bytes. En la compilación predeterminada de arm64, las cargas y escrituras requieren memoria Normal con atributos Inner y Outer Write-Back, como la del heap de Go. Una carga o un CAS fallido pueden volver a escribir el valor observado.
 
 - Las compilaciones por defecto no realizan comprobaciones en tiempo de ejecución.
 - Protección de depuración opcional: compila con `-tags=dwcasdebug` para hacer panic en punteros nulos o desalineados.
 
-Usa `dwcas.New` si necesitas un `*Uint128` alineado a 16 bytes en el heap.
+Usa `dwcas.New` para reservar un `*Uint128` alineado a 16 bytes en memoria gestionada por Go.
 
 Si necesitas colocar un `*Uint128` dentro de un buffer de bytes proporcionado por el usuario (por ejemplo, en un arena manual), usa los helpers de colocación. El peor caso de bytes restantes requeridos desde `off` es 31.
 
@@ -116,10 +121,11 @@ off += n // n is in [16..31]
 
 ## Arquitecturas y backends compatibles
 
-- `amd64`: implementado mediante `CMPXCHG16B`.
+- En `amd64`, el CAS y las cargas predeterminadas usan `LOCK CMPXCHG16B`. Las escrituras predeterminadas se reintentan si falla la comparación.
+  - Para cargas de trabajo con muchas lecturas, `-tags=dwcas_avx` usa una instrucción `VMOVDQA` alineada por cada lectura o escritura independiente. El sistema operativo debe habilitar AVX y la CPU debe garantizar la atomicidad de los accesos vectoriales alineados de 16 bytes a memoria write-back.
 - `arm64`:
-  - por defecto: LSE pair-CAS (familia CASP) (mejor rendimiento).
-  - LL/SC opcional: `-tags=dwcas_llsc` (línea base portable vía `LDXP` con `STXP` o `STLXP`).
+  - Las cargas y escrituras relajadas usan `LDP` y `STP`. Una carga acquire añade `DMB ISHLD` después de `LDP`. Una escritura release añade `DMB ISH` antes de `STP`. El CAS usa la familia `CASP` de LSE.
+  - LL/SC opcional: `-tags=dwcas_llsc` (línea base portable vía `LDXP`/`LDAXP` con `STXP` o `STLXP`).
 
 ## Notas de seguridad
 

@@ -7,13 +7,13 @@
 
 言語: [English](README.md) | [简体中文](README.zh-CN.md) | **日本語** | [Español](README.es.md) | [Français](README.fr.md)
 
-Go 向けのポータブルな 128-bit（double-word）compare-and-swap（CAS）プリミティブです。
+Go 向けの 128 ビット（ダブルワード）のアトミックなロード、ストア、比較交換（CAS）を提供します。
 
 ## 概要
 
 - `amd64` / `arm64` で単一の原子的 128-bit CAS を提供します。
 - ロックフリーアルゴリズム（バージョン付き状態、ABA 緩和、複合更新）向けです。
-- `arm64` は既定で LSE pair-CAS の高速パスを使用します。互換性のために LL/SC も build tag で選択できます。
+- arm64 の既定ビルドは FEAT_LSE2 を前提とします。従来の CPU では `-tags=dwcas_llsc` を指定してください。
 
 ## インストール
 
@@ -31,7 +31,7 @@ old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.Lo, v.Hi)
+fmt.Println(prev, swapped, v.LoadRelaxed())
 ```
 
 ## API
@@ -40,11 +40,16 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 - `type Uint128 struct { Lo uint64; Hi uint64 }`
 
-### Compare-exchange メソッド
+### ロードとストア
 
-`*dwcas.Uint128` の各メソッドは compare-exchange 形式の 128-bit CAS です。
+- `LoadRelaxed() Uint128` と `LoadAcquire() Uint128` は一貫したペアを返します。
+- `StoreRelaxed(value Uint128)` と `StoreRelease(value Uint128)` は両方のワードをアトミックに置き換えます。
 
-全メソッドの返り値:
+### CAS メソッド
+
+4 つの `Try` メソッドは `(old, new Uint128)` を受け取り、`bool` を返します。`false` は観測した値が `old` と異なったことを示します。arm64 の LL/SC では、値が一致しても予約を失うと再試行するため、1 回の呼び出しのステップ数に固定の上限はありません。
+
+4 つの compare-exchange メソッドは観測した値の組も返します。
 
 - `prev`: この CAS 試行時点でメモリ上に観測された値
 - `swapped`: 交換が発生した場合 `true`
@@ -64,20 +69,20 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 ## メモリオーダー
 
-オーダーはメソッドごとに指定され、**成功時**と**失敗時**で異なる場合があります。
+CAS メソッドは成功時と失敗時のメモリオーダーを個別に定めます。
 
 | メソッド | 成功 | 失敗 |
 |----------|------|------|
-| `(*Uint128).Relaxed` | relaxed | relaxed |
-| `(*Uint128).Acquire` | acquire | relaxed |
-| `(*Uint128).Release` | release | relaxed |
-| `(*Uint128).AcqRel`  | acq_rel | relaxed |
+| `(*Uint128).Relaxed`, `(*Uint128).TryRelaxed` | relaxed | relaxed |
+| `(*Uint128).Acquire`, `(*Uint128).TryAcquire` | acquire | relaxed |
+| `(*Uint128).Release`, `(*Uint128).TryRelease` | release | relaxed |
+| `(*Uint128).AcqRel`, `(*Uint128).TryAcqRel`  | acq_rel | relaxed |
 
 補足:
 
 - 一部のバックエンドは要求より強いオーダーを提供します。
   - `amd64` では `LOCK` 付き命令は成功/失敗ともに少なくとも acquire-release です。
-  - `arm64` の既定（LSE）ビルドでは、`Release`/`AcqRel` は CAS の前に release barrier を置き、失敗試行も順序付けます。
+  - arm64 では、acquire 順序の CAS メソッドは比較が失敗した場合も acquire 順序で読み取ります。
 
 ### 手動バリア
 
@@ -89,12 +94,12 @@ fmt.Println(prev, swapped, v.Lo, v.Hi)
 
 ## アラインメント要件
 
-これらのメソッドで使用する `*dwcas.Uint128` のアドレスは 16 バイト境界にアラインされている必要があります。ポインタは non-nil である必要があります。
+レシーバーは 16 バイト境界にアラインされた書き込み可能なメモリを指す必要があります。arm64 の既定バックエンドでロード・ストアを行うには、Go のヒープと同じく Inner と Outer がともに Write-Back の Normal メモリが必要です。ロードや失敗した CAS でも、読み取った値を書き戻す場合があります。
 
 - 既定ビルドではランタイムチェックを行いません。
 - デバッグ用ガード: `-tags=dwcasdebug` でビルドすると、nil または未アラインで panic します。
 
-ヒープ上に 16 バイトアラインされた `*Uint128` が必要な場合は `dwcas.New` を使用してください。
+`dwcas.New` は Go が管理するメモリに 16 バイト境界に整列した `*Uint128` を確保します。
 
 呼び出し側の byte buffer 内に `*Uint128` を配置したい場合（手動 arena など）は、placement helpers を使用してください。`off` からの最悪必要残量は 31 バイトです。
 
@@ -116,10 +121,11 @@ off += n // n is in [16..31]
 
 ## 対応アーキテクチャとバックエンド
 
-- `amd64`: `CMPXCHG16B` により実装。
+- `amd64` では、CAS と既定のロードに `LOCK CMPXCHG16B` を使います。既定のストアは比較に失敗すると再試行します。
+  - 読み取りが多い場合、`-tags=dwcas_avx` を指定すると、単独のロードとストアはそれぞれ整列した `VMOVDQA` 1 命令で対象を読み書きします。OS が AVX を有効にし、CPU がライトバックメモリに対して 16 バイト境界に整列した 16 バイトのベクトルアクセスの原子性を保証する必要があります。
 - `arm64`:
-  - 既定: LSE pair-CAS（CASP family）（最高性能）。
-  - 任意の LL/SC: `-tags=dwcas_llsc`（`LDXP` と `STXP` または `STLXP` によるポータブルなベースライン）。
+  - relaxed ロード・ストアには `LDP` と `STP` を使います。acquire ロードでは `LDP` の後に `DMB ISHLD` を、release ストアでは `STP` の前に `DMB ISH` を実行します。CAS には LSE の `CASP` 命令群を使います。
+  - 任意の LL/SC: `-tags=dwcas_llsc`（`LDXP`/`LDAXP` と `STXP` または `STLXP` によるポータブルなベースライン）。
 
 ## 安全上の注意
 

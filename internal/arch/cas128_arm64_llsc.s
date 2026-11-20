@@ -6,131 +6,68 @@
 
 #include "textflag.h"
 
-// LL/SC variant for arm64 using LDXP/STXP (relaxed) and STLXP (release).
-//
-// Notes:
-// - Assumes ptr is 16-byte aligned and valid (no checks; hot path).
-// - On store-exclusive failure (contention), we retry.
-// - On mismatch, return the observed value immediately (no extra loads).
+#define LOAD_CAS_ARGS \
+	MOVD ptr+0(FP), R8; \
+	LDP old_Lo+8(FP), (R0, R1); \
+	LDP new_Lo+24(FP), (R2, R3)
 
-// Cas128Relaxed(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
+// A successful exclusive store validates the observed pair on either outcome.
+// Check Lo first so a mismatch can go straight to a relaxed write-back.
+#define PAIR_CAS(LOAD, STORE) \
+	LOAD_CAS_ARGS; \
+	retry: LOAD (R8), (R4, R5); \
+	CMP R4, R0; \
+	BNE mismatch; \
+	CMP R5, R1; \
+	BNE mismatch; \
+	STORE (R2, R3), (R8), R6; \
+	CBNZ R6, retry; \
+	STP (R4, R5), prev_Lo+40(FP); \
+	MOVD $1, R6; \
+	MOVB R6, swapped+56(FP); \
+	RET; \
+	mismatch: STXP (R4, R5), (R8), R6; \
+	CBNZ R6, retry; \
+	STP (R4, R5), prev_Lo+40(FP); \
+	MOVB ZR, swapped+56(FP); \
+	RET
+
+// A differing word witnesses false. Retry a lost reservation only on a match.
+#define TRY_CAS(LOAD, STORE) \
+	LOAD_CAS_ARGS; \
+	retry: LOAD (R8), (R4, R5); \
+	CMP R4, R0; \
+	CCMP EQ, R5, R1, $0; \
+	BNE mismatch; \
+	STORE (R2, R3), (R8), R6; \
+	CBNZ R6, retry; \
+	MOVD $1, R6; \
+	MOVB R6, swapped+40(FP); \
+	RET; \
+	mismatch: CLREX $15; \
+	MOVB ZR, swapped+40(FP); \
+	RET
+
 TEXT ·Cas128Relaxed(SB), NOSPLIT, $0-57
-	MOVD	ptr+0(FP), R8
-	MOVD	oldLo+8(FP), R0
-	MOVD	oldHi+16(FP), R1
-	MOVD	newLo+24(FP), R2
-	MOVD	newHi+32(FP), R3
+	PAIR_CAS(LDXP, STXP)
 
-loop_llsc_relaxed:
-	LDXP	(R8), (R4, R5)
-	CMP	R4, R0
-	BNE	not_eq_llsc_relaxed
-	CMP	R5, R1
-	BNE	not_eq_llsc_relaxed
-	STXP	(R2, R3), (R8), R6
-	CBNZ	R6, loop_llsc_relaxed
-
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	CSET	EQ, R6
-	MOVB	R6, swapped+56(FP)
-	RET
-
-not_eq_llsc_relaxed:
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	MOVB	ZR, swapped+56(FP)
-	RET
-
-// Cas128Acquire(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
 TEXT ·Cas128Acquire(SB), NOSPLIT, $0-57
-	MOVD	ptr+0(FP), R8
-	MOVD	oldLo+8(FP), R0
-	MOVD	oldHi+16(FP), R1
-	MOVD	newLo+24(FP), R2
-	MOVD	newHi+32(FP), R3
+	PAIR_CAS(LDAXP, STXP)
 
-loop_llsc_acquire:
-	LDXP	(R8), (R4, R5)
-	CMP	R4, R0
-	BNE	not_eq_llsc_acquire
-	CMP	R5, R1
-	BNE	not_eq_llsc_acquire
-	STXP	(R2, R3), (R8), R6
-	CBNZ	R6, loop_llsc_acquire
-
-	// Acquire ordering on success only (ISHLD).
-	DMB	$0x9
-
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	CSET	EQ, R6
-	MOVB	R6, swapped+56(FP)
-	RET
-
-not_eq_llsc_acquire:
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	MOVB	ZR, swapped+56(FP)
-	RET
-
-// Cas128Release(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
 TEXT ·Cas128Release(SB), NOSPLIT, $0-57
-	MOVD	ptr+0(FP), R8
-	MOVD	oldLo+8(FP), R0
-	MOVD	oldHi+16(FP), R1
-	MOVD	newLo+24(FP), R2
-	MOVD	newHi+32(FP), R3
+	PAIR_CAS(LDXP, STLXP)
 
-loop_llsc_release:
-	LDXP	(R8), (R4, R5)
-	CMP	R4, R0
-	BNE	not_eq_llsc_release
-	CMP	R5, R1
-	BNE	not_eq_llsc_release
-	STLXP	(R2, R3), (R8), R6
-	CBNZ	R6, loop_llsc_release
-
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	CSET	EQ, R6
-	MOVB	R6, swapped+56(FP)
-	RET
-
-not_eq_llsc_release:
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	MOVB	ZR, swapped+56(FP)
-	RET
-
-// Cas128AcqRel(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool)
 TEXT ·Cas128AcqRel(SB), NOSPLIT, $0-57
-	MOVD	ptr+0(FP), R8
-	MOVD	oldLo+8(FP), R0
-	MOVD	oldHi+16(FP), R1
-	MOVD	newLo+24(FP), R2
-	MOVD	newHi+32(FP), R3
+	PAIR_CAS(LDAXP, STLXP)
 
-loop_llsc_acqrel:
-	LDXP	(R8), (R4, R5)
-	CMP	R4, R0
-	BNE	not_eq_llsc_acqrel
-	CMP	R5, R1
-	BNE	not_eq_llsc_acqrel
-	STLXP	(R2, R3), (R8), R6
-	CBNZ	R6, loop_llsc_acqrel
+TEXT ·TryRelaxed(SB), NOSPLIT, $0-41
+	TRY_CAS(LDXP, STXP)
 
-	// Acquire ordering on success only (ISHLD).
-	DMB	$0x9
+TEXT ·TryAcquire(SB), NOSPLIT, $0-41
+	TRY_CAS(LDAXP, STXP)
 
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	CSET	EQ, R6
-	MOVB	R6, swapped+56(FP)
-	RET
+TEXT ·TryRelease(SB), NOSPLIT, $0-41
+	TRY_CAS(LDXP, STLXP)
 
-not_eq_llsc_acqrel:
-	MOVD	R4, prevLo+40(FP)
-	MOVD	R5, prevHi+48(FP)
-	MOVB	ZR, swapped+56(FP)
-	RET
+TEXT ·TryAcqRel(SB), NOSPLIT, $0-41
+	TRY_CAS(LDAXP, STLXP)

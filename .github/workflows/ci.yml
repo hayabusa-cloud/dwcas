@@ -34,6 +34,19 @@ jobs:
       - name: Test (default)
         run: go test -timeout 120s ./...
 
+      - name: Test portable helpers and stubs (linux/386)
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        env:
+          GOARCH: '386'
+          CGO_ENABLED: '0'
+        run: go test -timeout 120s ./...
+
+      - name: Test (dwcas_avx)
+        if: matrix.goarch == 'amd64'
+        env:
+          GOAMD64: v3
+        run: go test -timeout 120s -tags=dwcas_avx ./...
+
       - name: Test (dwcas_llsc)
         if: matrix.goarch == 'arm64'
         run: go test -timeout 120s -tags=dwcas_llsc ./...
