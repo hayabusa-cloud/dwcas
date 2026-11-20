@@ -95,7 +95,8 @@ func (p *Uint128) TryAcqRel(old, new Uint128) bool {
 //   - On unsupported architectures, Relaxed panics.
 func (p *Uint128) Relaxed(old, new Uint128) (prev Uint128, swapped bool) {
 	checkAligned(p)
-	return arch.Cas128Relaxed((*arch.Pair)(p), old, new)
+	prev, swapped = arch.Cas128Relaxed((*arch.Pair)(p), old, new)
+	return
 }
 
 // Acquire is a 128-bit compare-and-swap (CAS) with acquire ordering on success
@@ -111,7 +112,8 @@ func (p *Uint128) Relaxed(old, new Uint128) (prev Uint128, swapped bool) {
 //   - On unsupported architectures, Acquire panics.
 func (p *Uint128) Acquire(old, new Uint128) (prev Uint128, swapped bool) {
 	checkAligned(p)
-	return arch.Cas128Acquire((*arch.Pair)(p), old, new)
+	prev, swapped = arch.Cas128Acquire((*arch.Pair)(p), old, new)
+	return
 }
 
 // Release is a 128-bit compare-and-swap (CAS) with release ordering on success
@@ -127,7 +129,8 @@ func (p *Uint128) Acquire(old, new Uint128) (prev Uint128, swapped bool) {
 //   - On unsupported architectures, Release panics.
 func (p *Uint128) Release(old, new Uint128) (prev Uint128, swapped bool) {
 	checkAligned(p)
-	return arch.Cas128Release((*arch.Pair)(p), old, new)
+	prev, swapped = arch.Cas128Release((*arch.Pair)(p), old, new)
+	return
 }
 
 // AcqRel is a 128-bit compare-and-swap (CAS) with acquire-release ordering on
@@ -143,5 +146,6 @@ func (p *Uint128) Release(old, new Uint128) (prev Uint128, swapped bool) {
 //   - On unsupported architectures, AcqRel panics.
 func (p *Uint128) AcqRel(old, new Uint128) (prev Uint128, swapped bool) {
 	checkAligned(p)
-	return arch.Cas128AcqRel((*arch.Pair)(p), old, new)
+	prev, swapped = arch.Cas128AcqRel((*arch.Pair)(p), old, new)
+	return
 }
