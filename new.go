@@ -25,10 +25,10 @@ func New(lo, hi uint64) *Uint128 {
 	return p
 }
 
-// CanPlaceAlignedUint128 reports whether p has enough remaining capacity from off
-// to place a 16-byte aligned *Uint128 at or after p[off].
+// CanPlaceAlignedUint128 reports whether p has enough room to place a
+// 16-byte aligned [Uint128] at or after p[off].
 //
-// Worst-case required remaining bytes from off is 31:
+// The offset must be valid, with at least 31 bytes left in the slice.
 //   - up to 15 bytes of padding to reach a 16-byte boundary
 //   - 16 bytes for the Uint128 itself
 func CanPlaceAlignedUint128(p []byte, off int) bool {

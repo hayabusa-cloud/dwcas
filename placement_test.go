@@ -50,7 +50,7 @@ func TestCanPlaceAlignedUint128(t *testing.T) {
 		{name: "off<0", p: buf, off: -1, want: false},
 		{name: "off>len", p: buf, off: len(buf) + 1, want: false},
 		{name: "off==len", p: buf, off: len(buf), want: false},
-		{name: "insufficient (30)", p: make([]byte, 30), off: 0, want: false},
+		{name: "30 bytes with spare capacity", p: buf[:30], off: 0, want: false},
 		{name: "exact (31)", p: make([]byte, 31), off: 0, want: true},
 		{name: "sufficient", p: buf, off: 0, want: true},
 		{name: "boundary ok", p: buf, off: len(buf) - 31, want: true},
