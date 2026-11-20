@@ -89,7 +89,7 @@ CAS メソッドは成功時と失敗時のメモリオーダーを個別に定�
 まれに、CAS128 の外側で明示的な順序付けが必要になることがあります。`dwcas` は 3 つの手動バリアを提供します。
 
 - `dwcas.BarrierAcquire`: `arm64` は `DMB ISHLD`、`amd64` はコンパイラバリアのみ。
-- `dwcas.BarrierRelease`: `arm64` は `DMB ISHST`、`amd64` はコンパイラバリアのみ。
+- `dwcas.BarrierRelease` は、ライトバック方式の共有メモリへの通常のアクセスで、先行する書き込みと後続の書き込みを順序付けます。`arm64` では `DMB ISHST`、`amd64` ではコンパイラバリアを使用します。先行する読み込みも順序付けるには、release ストアまたは成功した release CAS で公開します。
 - `dwcas.BarrierFull`: `arm64` は `DMB ISH`、`amd64` はコンパイラバリアのみ。
 
 ## アラインメント要件

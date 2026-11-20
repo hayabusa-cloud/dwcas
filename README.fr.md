@@ -89,7 +89,7 @@ Notes :
 Dans de rares cas, l'appelant peut avoir besoin d'une arête d'ordonnancement explicite en dehors des primitives CAS128. `dwcas` fournit trois barrières manuelles :
 
 - `dwcas.BarrierAcquire` : sur `arm64` émet `DMB ISHLD` ; sur `amd64` c'est uniquement une barrière compilateur.
-- `dwcas.BarrierRelease` : sur `arm64` émet `DMB ISHST` ; sur `amd64` c'est uniquement une barrière compilateur.
+- `dwcas.BarrierRelease` ordonne les écritures antérieures avant les écritures ultérieures pour les accès ordinaires à la mémoire partagée write-back. Elle utilise `DMB ISHST` sur `arm64` et une barrière de compilation sur `amd64`. Pour ordonner aussi les lectures antérieures, publiez avec une écriture release ou un CAS release réussi.
 - `dwcas.BarrierFull` : sur `arm64` émet `DMB ISH` ; sur `amd64` c'est uniquement une barrière compilateur.
 
 ## Exigence d'alignement

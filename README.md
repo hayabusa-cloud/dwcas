@@ -92,8 +92,10 @@ primitives. `dwcas` provides three manual barriers:
 
 - `dwcas.BarrierAcquire`: arm64 emits `DMB ISHLD`; amd64 is a compiler barrier
   only.
-- `dwcas.BarrierRelease`: arm64 emits `DMB ISHST`; amd64 is a compiler barrier
-  only.
+- `dwcas.BarrierRelease` orders earlier stores before later stores for ordinary
+  accesses to write-back shared memory. It uses `DMB ISHST` on arm64 and a
+  compiler barrier on amd64. To order earlier loads as well, publish with a
+  release store or a successful release CAS.
 - `dwcas.BarrierFull`: arm64 emits `DMB ISH`; amd64 is a compiler barrier only.
 
 ## Alignment requirement

@@ -16,16 +16,12 @@ func BarrierAcquire() {
 	arch.BarrierAcquire()
 }
 
-// BarrierRelease emits a release barrier.
+// BarrierRelease orders earlier stores before later stores for ordinary
+// accesses to write-back shared memory. On arm64 it emits DMB ISHST.
+// On amd64 it is a compiler barrier.
 //
-// This API is intentionally rare and expert-only. Prefer the ordering variants of
-// [Uint128] CAS methods when possible.
-//
-// Semantics by architecture:
-//
-//   - arm64: emits DMB ISHST.
-//   - amd64: compiler barrier only (prevents compile-time reordering across the
-//     call). It is not an MFENCE and is not required for cache coherence.
+// When publication must also order earlier loads, use a release store
+// such as [Uint128.StoreRelease] or a successful release CAS.
 func BarrierRelease() {
 	arch.BarrierRelease()
 }

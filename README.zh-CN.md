@@ -89,7 +89,7 @@ CAS 方法分别指定成功和失败时的内存序。
 少数情况下，调用方可能需要在 CAS128 原语之外，显式建立额外的有序边。`dwcas` 提供三个手动屏障：
 
 - `dwcas.BarrierAcquire`：`arm64` 生成 `DMB ISHLD`；`amd64` 仅为编译器屏障。
-- `dwcas.BarrierRelease`：`arm64` 生成 `DMB ISHST`；`amd64` 仅为编译器屏障。
+- `dwcas.BarrierRelease` 保证对写回型共享内存进行常规访问时，先前的写入排在后续写入之前。在 `arm64` 上使用 `DMB ISHST`，在 `amd64` 上使用编译器屏障。如需保证先前的读取也排在发布之前，请使用释放存储或成功的释放 CAS 进行发布。
 - `dwcas.BarrierFull`：`arm64` 生成 `DMB ISH`；`amd64` 仅为编译器屏障。
 
 ## 对齐要求
