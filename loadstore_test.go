@@ -32,3 +32,19 @@ func TestPairLoadStore(t *testing.T) {
 		t.Fatalf("load after StoreRelaxed returned %v, want %v", got, zero)
 	}
 }
+
+func TestLocalPairLoadAllocs(t *testing.T) {
+	// Strict checkptr builds can allocate the backing array during placement.
+	placeAllocs := testing.AllocsPerRun(100, func() {
+		var buf [31]byte
+		dwcas.PlaceAlignedUint128(buf[:], 0)
+	})
+	loadAllocs := testing.AllocsPerRun(100, func() {
+		var buf [31]byte
+		_, p := dwcas.PlaceAlignedUint128(buf[:], 0)
+		p.LoadRelaxed()
+	})
+	if loadAllocs > placeAllocs {
+		t.Fatalf("placement used %g allocs/run, placement with LoadRelaxed used %g", placeAllocs, loadAllocs)
+	}
+}
