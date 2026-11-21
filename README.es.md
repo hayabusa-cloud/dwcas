@@ -132,6 +132,7 @@ off += n // n is in [16..31]
 `dwcas` usa `unsafe` y ensamblador específico de arquitectura.
 
 - Mantén `*Uint128` alcanzable como puntero de Go. No lo conviertas a `uintptr` y de vuelta, y no lo almacenes en memoria no rastreada.
+- Si la dirección de un objeto de Go solo se guarda en `Lo` o `Hi`, el recolector de basura puede liberar el objeto. Una cola puede mantener los punteros en un slice alcanzable y guardar en el par el índice de la celda y su número de generación.
 - Un valor `Uint128` copiado no conserva garantías de alineación. La alineación es una propiedad de la dirección que pasas a estos métodos.
 
 ## Licencia

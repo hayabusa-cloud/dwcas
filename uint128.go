@@ -14,6 +14,10 @@ import "code.hybscloud.com/dwcas/internal/arch"
 //	word 0: Lo
 //	word 1: Hi
 //
+// The garbage collector can reclaim a Go object whose address is stored only
+// in Lo or Hi. A queue can keep pointers in a reachable slice and store a
+// slot index and generation in the pair.
+//
 // Method receivers must point to writable, 16-byte-aligned memory. On the
 // default arm64 backend, loads and stores require Normal memory with Inner
 // and Outer Write-Back cacheability, as in the Go heap. The amd64 dwcas_avx

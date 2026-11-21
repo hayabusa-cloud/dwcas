@@ -141,6 +141,7 @@ off += n // n is in [16..31]
 
 - Keep a `*Uint128` reachable as a Go pointer. Do not convert it to `uintptr` and
   back, and do not store it in untracked memory.
+- The garbage collector can reclaim a Go object whose address is stored only in `Lo` or `Hi`. A queue can keep pointers in a reachable slice and store a slot index and generation in the pair.
 - A copied `Uint128` value does not carry alignment guarantees. Alignment is a
   property of the address you pass to these methods.
 

@@ -3,8 +3,8 @@
 //
 // Intended use cases
 //
-//   - Lock-free algorithms that need to atomically update a value and a version/tag
-//     (e.g. ABA mitigation via versioned pointers).
+//   - Lock-free algorithms that pair a slot index with a generation counter
+//     to mitigate ABA when a slot is reused.
 //   - Composite state machines where two 64-bit words must move together.
 //   - Low-level runtime-like data structures (queues, stacks) where a single 128-bit
 //     CAS reduces coordination overhead.

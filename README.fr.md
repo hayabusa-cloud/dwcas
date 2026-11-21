@@ -132,6 +132,7 @@ off += n // n is in [16..31]
 `dwcas` utilise `unsafe` et de l'assemblage spécifique à l'architecture.
 
 - Gardez `*Uint128` atteignable en tant que pointeur Go. Ne le convertissez pas en `uintptr` puis de nouveau, et ne le stockez pas dans une mémoire non suivie.
+- Si l’adresse d’un objet Go est conservée uniquement dans `Lo` ou `Hi`, le ramasse-miettes peut libérer l’objet. Une file peut conserver les pointeurs dans une tranche qui reste accessible et stocker dans la paire l’indice de la case et son numéro de génération.
 - Une valeur `Uint128` copiée ne transporte pas de garanties d'alignement. L'alignement est une propriété de l'adresse passée à ces méthodes.
 
 ## Licence
