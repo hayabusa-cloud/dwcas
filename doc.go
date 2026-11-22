@@ -17,6 +17,9 @@
 // When an acquire load observes a release store, accesses before the store
 // are ordered before accesses after the load.
 //
+// The pair operations use uninstrumented assembly. Go's race detector may
+// report a race on data whose accesses are synchronized solely through the pair.
+//
 // # Return values
 //
 // [Uint128.TryRelaxed], [Uint128.TryAcquire], [Uint128.TryRelease], and
@@ -43,11 +46,14 @@
 //
 // # Manual barriers
 //
-// This package also exposes manual barriers ([BarrierAcquire], [BarrierRelease],
-// [BarrierFull]) for callers who need an explicit ordering edge outside the CAS
-// primitives. On arm64 they map to DMB ISH*; on amd64 they are compiler barriers
-// (not MFENCE). On unsupported architectures, these barrier helpers panic at
-// runtime, like the CAS methods.
+// A ring producer can call [BarrierRelease] after writing descriptors and
+// before storing the new tail. When returning a buffer for reuse, the producer
+// can order both its payload reads and descriptor writes with one release
+// store to the tail.
+//
+// On arm64, [BarrierAcquire], [BarrierRelease], and [BarrierFull] apply to
+// the inner-shareable domain. On amd64 all three are compiler barriers.
+// They panic on other architectures.
 //
 // # Alignment
 //
@@ -56,15 +62,13 @@
 // cacheability, as in the Go heap. Some backends write the observed pair back
 // even for a load or a failed CAS.
 //
-// Helpers:
-//   - [New] allocates a 16-byte-aligned *Uint128 in Go-managed memory.
-//   - [CanPlaceAlignedUint128] / [PlaceAlignedUint128] place a 16-byte aligned
-//     *Uint128 within a caller-provided byte buffer. The worst-case required
-//     remaining bytes from off is 31.
+// [New] allocates an aligned pair in Go-managed memory. In a caller-provided
+// byte slice, [PlaceAlignedUint128] requires at least 31 bytes starting at a
+// valid offset and consumes 16 to 31 bytes, including padding. It panics if
+// [CanPlaceAlignedUint128] would return false.
 //
-// This package intentionally does not perform runtime alignment checks in normal
-// builds. For a debug-only guard, build with `-tags=dwcasdebug` to make these
-// methods panic when called with a misaligned pointer.
+// Normal builds leave receiver alignment to the caller. With the dwcasdebug
+// build tag, the atomic methods panic on a nil or misaligned receiver.
 //
 // # Architecture support
 //

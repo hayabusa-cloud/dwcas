@@ -4,7 +4,7 @@
 [![Codecov](https://codecov.io/gh/hayabusa-cloud/dwcas/graph/badge.svg)](https://codecov.io/gh/hayabusa-cloud/dwcas)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Langues : [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | **Français**
+Langues : [English](README.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [日本語](README.ja.md) | **Français**
 
 Chargements, écritures et compare-and-swap (CAS) atomiques de 128 bits pour Go.
 
@@ -20,18 +20,47 @@ Chargements, écritures et compare-and-swap (CAS) atomiques de 128 bits pour Go.
 go get code.hybscloud.com/dwcas
 ```
 
-## Démarrage rapide
+## Exemples
 
-```text
-// New returns a 16-byte aligned *Uint128 suitable for 128-bit compare-and-swap.
+### Comparer et échanger une paire
+
+`dwcas.New` alloue une paire alignée sur 16 octets. `AcqRel` renvoie la paire observée et indique si l’échange a réussi.
+
+```go
 v := dwcas.New(1, 2)
 
 old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.LoadRelaxed())
+fmt.Println(prev, swapped, v.LoadRelaxed()) // {1 2} true {3 4}
 ```
+
+### Publier une plage d’octets
+
+Le producteur publie ensemble la position de départ (`Lo`) et la longueur (`Hi`) d’un bloc de données non vide, toutes deux exprimées en octets. Une longueur nulle indique un descripteur vide.
+
+```go
+buffer := make([]byte, 64)
+published := dwcas.New(0, 0)
+
+// Producteur
+const offset = 8
+n := copy(buffer[offset:], "hello")
+published.StoreRelease(dwcas.Uint128{Lo: offset, Hi: uint64(n)})
+
+// Lecteur
+span := published.LoadAcquire()
+if span.Hi != 0 {
+	fmt.Printf("%s\n", buffer[span.Lo:span.Lo+span.Hi])
+}
+```
+
+Dès que le lecteur observe la paire publiée, il peut lire les octets écrits par le producteur. Le producteur conserve leur contenu intact jusqu’à la fin de la lecture.
+
+Si les goroutines se synchronisent uniquement au moyen de cette paire, `-race` peut signaler un conflit d’accès au tampon, car les opérations sur la paire utilisent du code assembleur sans instrumentation.
+
+L’application définit la disposition des champs de `published`. Dans un anneau de tampons fournis à `io_uring` sous Linux, une écriture de 128 bits dans le premier descripteur écrirait aussi l’indice de fin de l’anneau, un champ de 16 bits situé à 14 octets du début du descripteur. `uring.BufferRing.Add` écrit l’adresse, la longueur et l’identifiant du tampon. `Advance` publie les tampons en mettant cet indice à jour. [Structure de l’anneau sous Linux](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
 
 ## APIs
 
@@ -85,37 +114,32 @@ Notes :
 
 ### Barrières manuelles
 
-Dans de rares cas, l'appelant peut avoir besoin d'une arête d'ordonnancement explicite en dehors des primitives CAS128. `dwcas` fournit trois barrières manuelles :
+Sur arm64, ces barrières ordonnent les accès ordinaires à la mémoire partagée de type write-back dans le domaine de partage interne (Inner Shareable).
 
-- `dwcas.BarrierAcquire` : sur `arm64` émet `DMB ISHLD` ; sur `amd64` c'est uniquement une barrière compilateur.
-- `dwcas.BarrierRelease` ordonne les écritures antérieures avant les écritures ultérieures pour les accès ordinaires à la mémoire partagée write-back. Elle utilise `DMB ISHST` sur `arm64` et une barrière de compilation sur `amd64`. Pour ordonner aussi les lectures antérieures, publiez avec une écriture release ou un CAS release réussi.
-- `dwcas.BarrierFull` : sur `arm64` émet `DMB ISH` ; sur `amd64` c'est uniquement une barrière compilateur.
+- `dwcas.BarrierAcquire` place les lectures antérieures avant les lectures et écritures ultérieures (`DMB ISHLD`).
+- `dwcas.BarrierRelease` place les écritures antérieures avant les suivantes (`DMB ISHST`). Pour ordonner aussi les lectures antérieures, publiez avec une écriture release ou un CAS release qui réussit.
+- `dwcas.BarrierFull` place toutes les lectures et écritures antérieures avant les lectures et écritures ultérieures (`DMB ISH`).
+
+Sur amd64, les trois fonctions agissent comme des barrières de compilation. Le processeur peut réordonner une lecture par rapport à une écriture antérieure à une autre adresse.
 
 ## Exigence d'alignement
 
-Le récepteur doit pointer vers une zone accessible en écriture et alignée sur 16 octets. Sur arm64, les chargements et écritures du backend par défaut exigent une mémoire Normal avec les attributs Inner et Outer Write-Back, comme celle du tas Go. Un chargement ou un CAS en échec peut réécrire la valeur observée.
+Le récepteur doit pointer vers une zone accessible en écriture et alignée sur 16 octets. Sur arm64, les chargements et écritures du backend par défaut exigent une mémoire Normal avec les attributs Inner et Outer Write-Back, comme celle du tas Go. Un chargement ou un CAS en échec peut réécrire la valeur observée. Pour les accès concurrents, utilisez les méthodes atomiques de la paire.
 
-- Les builds par défaut n'effectuent aucune vérification à l'exécution.
-- Garde de debug optionnelle : compiler avec `-tags=dwcasdebug` pour déclencher un panic sur pointeur nil ou mal aligné.
+Par défaut, l’appelant garantit l’alignement du récepteur. Avec `-tags=dwcasdebug`, les méthodes atomiques déclenchent un panic si le récepteur est `nil` ou mal aligné.
 
 Utilisez `dwcas.New` pour allouer un `*Uint128` aligné sur 16 octets dans la mémoire gérée par Go.
 
-Si vous devez placer un `*Uint128` dans un buffer de bytes fourni par l'appelant (par exemple, dans une arène gérée manuellement), utilisez les helpers de placement. Le pire cas de bytes restants requis à partir de `off` est 31.
+`CanPlaceAlignedUint128` indique si `off` est positif ou nul et s’il reste au moins 31 octets dans la tranche à partir de cette position. Si la vérification échoue, `PlaceAlignedUint128` déclenche un panic. En cas de succès, la fonction renvoie le nombre d’octets utilisés (de 16 à 31, alignement compris) et le pointeur aligné.
 
-```text
+```go
 buf := make([]byte, 256)
 off := 7
-
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-    panic("insufficient space")
-}
 
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-_, _ = v.Relaxed(dwcas.Uint128{Lo: 1, Hi: 2}, dwcas.Uint128{Lo: 3, Hi: 4})
-
-off += n // n is in [16..31]
+off += n
 ```
 
 ## Architectures et backends supportés

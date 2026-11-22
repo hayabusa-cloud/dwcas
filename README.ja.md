@@ -4,7 +4,7 @@
 [![Codecov](https://codecov.io/gh/hayabusa-cloud/dwcas/graph/badge.svg)](https://codecov.io/gh/hayabusa-cloud/dwcas)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-言語: [English](README.md) | [简体中文](README.zh-CN.md) | **日本語** | [Español](README.es.md) | [Français](README.fr.md)
+言語: [English](README.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | **日本語** | [Français](README.fr.md)
 
 Go 向けの 128 ビット（ダブルワード）のアトミックなロード、ストア、比較交換（CAS）を提供します。
 
@@ -20,18 +20,47 @@ Go 向けの 128 ビット（ダブルワード）のアトミックなロード
 go get code.hybscloud.com/dwcas
 ```
 
-## クイックスタート
+## 使用例
 
-```text
-// New returns a 16-byte aligned *Uint128 suitable for 128-bit compare-and-swap.
+### ペアを比較して交換する
+
+`dwcas.New` は 16 バイト境界に整列したペアを確保します。`AcqRel` は、比較時に読み取ったペアと、交換が成功したかどうかを返します。
+
+```go
 v := dwcas.New(1, 2)
 
 old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.LoadRelaxed())
+fmt.Println(prev, swapped, v.LoadRelaxed()) // {1 2} true {3 4}
 ```
+
+### バッファ内のデータ範囲を公開する
+
+書き手は、空でないデータの先頭オフセット（`Lo`）と長さ（`Hi`）を、どちらもバイト単位でまとめて公開します。長さが 0 の記述子は空です。
+
+```go
+buffer := make([]byte, 64)
+published := dwcas.New(0, 0)
+
+// 書き手
+const offset = 8
+n := copy(buffer[offset:], "hello")
+published.StoreRelease(dwcas.Uint128{Lo: offset, Hi: uint64(n)})
+
+// 読み手
+span := published.LoadAcquire()
+if span.Hi != 0 {
+	fmt.Printf("%s\n", buffer[span.Lo:span.Lo+span.Hi])
+}
+```
+
+読み手は、公開されたペアを取得すると、書き込み済みのバイト列を読めます。書き手は、読み手が読み終えるまでその範囲の内容を保持します。
+
+このペアだけで goroutine 間を同期すると、`-race` がバッファの読み書きをデータ競合として報告することがあります。ペアの操作に使うアセンブリコードは競合検出の計測対象外です。
+
+`published` のレイアウトはアプリケーションが定義します。Linux の `io_uring` の提供バッファリングでは、先頭の記述子を 128 ビット単位で書き込むと、先頭から 14 バイトの位置にある 16 ビットの tail も書き換わります。`uring.BufferRing.Add` はアドレス、長さ、バッファ ID を書き込み、`Advance` は tail を更新してバッファを公開します。 [Linux のバッファリングのレイアウト](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
 
 ## API
 
@@ -85,37 +114,32 @@ CAS メソッドは成功時と失敗時のメモリオーダーを個別に定�
 
 ### 手動バリア
 
-まれに、CAS128 の外側で明示的な順序付けが必要になることがあります。`dwcas` は 3 つの手動バリアを提供します。
+arm64 では、これらのバリアは内部共有可能ドメイン（Inner Shareable）内で、ライトバック方式の共有メモリへの通常のアクセスを順序付けます。
 
-- `dwcas.BarrierAcquire`: `arm64` は `DMB ISHLD`、`amd64` はコンパイラバリアのみ。
-- `dwcas.BarrierRelease` は、ライトバック方式の共有メモリへの通常のアクセスで、先行する書き込みと後続の書き込みを順序付けます。`arm64` では `DMB ISHST`、`amd64` ではコンパイラバリアを使用します。先行する読み込みも順序付けるには、release ストアまたは成功した release CAS で公開します。
-- `dwcas.BarrierFull`: `arm64` は `DMB ISH`、`amd64` はコンパイラバリアのみ。
+- `dwcas.BarrierAcquire` は、先行するロードを後続のロードおよびストアより前に順序付けます（`DMB ISHLD`）。
+- `dwcas.BarrierRelease` は、先行するストアを後続のストアより前に順序付けます（`DMB ISHST`）。先行するロードも公開前に順序付けるには、release ストアまたは成功した release CAS で公開します。
+- `dwcas.BarrierFull` は、先行するすべてのロードとストアを後続のロードとストアより前に順序付けます（`DMB ISH`）。
+
+amd64 では、いずれもコンパイラバリアです。CPU は、先行するストアと、それに続く別アドレスからのロードを並べ替えることがあります。
 
 ## アラインメント要件
 
-レシーバーは 16 バイト境界にアラインされた書き込み可能なメモリを指す必要があります。arm64 の既定バックエンドでロード・ストアを行うには、Go のヒープと同じく Inner と Outer がともに Write-Back の Normal メモリが必要です。ロードや失敗した CAS でも、読み取った値を書き戻す場合があります。
+レシーバーは 16 バイト境界にアラインされた書き込み可能なメモリを指す必要があります。arm64 の既定バックエンドでロード・ストアを行うには、Go のヒープと同じく Inner と Outer がともに Write-Back の Normal メモリが必要です。ロードや失敗した CAS でも、読み取った値を書き戻す場合があります。複数のゴルーチンから同時にアクセスする場合は、ペアのアトミックなメソッドを使ってください。
 
-- 既定ビルドではランタイムチェックを行いません。
-- デバッグ用ガード: `-tags=dwcasdebug` でビルドすると、nil または未アラインで panic します。
+既定のビルドでは、呼び出し側がレシーバーのアラインメントを保証します。`-tags=dwcasdebug` を指定すると、レシーバーが `nil` の場合や 16 バイト境界に整列していない場合に、アトミックなメソッドが panic します。
 
 `dwcas.New` は Go が管理するメモリに 16 バイト境界に整列した `*Uint128` を確保します。
 
-呼び出し側の byte buffer 内に `*Uint128` を配置したい場合（手動 arena など）は、placement helpers を使用してください。`off` からの最悪必要残量は 31 バイトです。
+`CanPlaceAlignedUint128` は、`off` が 0 以上で、その位置からスライスの末尾までに 31 バイト以上残っているかを返します。この条件を満たさない場合、`PlaceAlignedUint128` は panic します。成功時には、パディングを含む使用バイト数（16～31）と、整列したポインタを返します。
 
-```text
+```go
 buf := make([]byte, 256)
 off := 7
-
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-    panic("insufficient space")
-}
 
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-_, _ = v.Relaxed(dwcas.Uint128{Lo: 1, Hi: 2}, dwcas.Uint128{Lo: 3, Hi: 4})
-
-off += n // n is in [16..31]
+off += n
 ```
 
 ## 対応アーキテクチャとバックエンド

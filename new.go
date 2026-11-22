@@ -25,12 +25,9 @@ func New(lo, hi uint64) *Uint128 {
 	return p
 }
 
-// CanPlaceAlignedUint128 reports whether p has enough room to place a
-// 16-byte aligned [Uint128] at or after p[off].
-//
-// The offset must be valid, with at least 31 bytes left in the slice.
-//   - up to 15 bytes of padding to reach a 16-byte boundary
-//   - 16 bytes for the Uint128 itself
+// CanPlaceAlignedUint128 reports whether off is nonnegative and at least
+// 31 bytes remain in p starting at off. This allows up to 15 bytes of
+// alignment padding followed by a 16-byte [Uint128].
 func CanPlaceAlignedUint128(p []byte, off int) bool {
 	if off < 0 || off > len(p) {
 		return false
@@ -38,14 +35,11 @@ func CanPlaceAlignedUint128(p []byte, off int) bool {
 	return len(p)-off >= 31
 }
 
-// PlaceAlignedUint128 returns a *Uint128 placed within p, starting at or after
-// p[off], such that the returned address is 16-byte aligned.
+// PlaceAlignedUint128 returns the number of bytes consumed from off and a
+// 16-byte-aligned pointer into p at or after off. The count is 16 to 31 bytes,
+// including alignment padding.
 //
-// It returns n, the number of bytes the caller must "consume" starting from off
-// to cover the aligned 16-byte region (including any alignment padding).
-//
-// The caller is responsible for ensuring [CanPlaceAlignedUint128] is true.
-// If not, PlaceAlignedUint128 panics.
+// It panics if [CanPlaceAlignedUint128] would return false.
 //
 // Safety notes:
 //   - The returned pointer refers to p's backing array. Keep p reachable.

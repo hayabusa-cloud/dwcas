@@ -4,7 +4,7 @@
 [![Codecov](https://codecov.io/gh/hayabusa-cloud/dwcas/graph/badge.svg)](https://codecov.io/gh/hayabusa-cloud/dwcas)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-语言： [English](README.md) | **简体中文** | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md)
+语言： [English](README.md) | **简体中文** | [Español](README.es.md) | [日本語](README.ja.md) | [Français](README.fr.md)
 
 为 Go 提供 128 位（双字）原子加载、存储和比较交换（CAS）操作。
 
@@ -20,18 +20,47 @@
 go get code.hybscloud.com/dwcas
 ```
 
-## 快速开始
+## 示例
 
-```text
-// New returns a 16-byte aligned *Uint128 suitable for 128-bit compare-and-swap.
+### 用 CAS 更新数值对
+
+`dwcas.New` 分配一个按 16 字节对齐的 `Uint128`。`AcqRel` 返回比较时读到的数值对，以及表示交换是否成功的布尔值。
+
+```go
 v := dwcas.New(1, 2)
 
 old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.LoadRelaxed())
+fmt.Println(prev, swapped, v.LoadRelaxed()) // {1 2} true {3 4}
 ```
+
+### 发布缓冲区中的一段数据
+
+生产者一次发布一段非空数据的字节偏移量（`Lo`）和字节数（`Hi`）。长度为零表示描述符为空。
+
+```go
+buffer := make([]byte, 64)
+published := dwcas.New(0, 0)
+
+// 生产者
+const offset = 8
+n := copy(buffer[offset:], "hello")
+published.StoreRelease(dwcas.Uint128{Lo: offset, Hi: uint64(n)})
+
+// 消费者
+span := published.LoadAcquire()
+if span.Hi != 0 {
+	fmt.Printf("%s\n", buffer[span.Lo:span.Lo+span.Hi])
+}
+```
+
+消费者读到已发布的数值对后，就可以读取生产者写入的字节。消费者读完之前，生产者须保持这段数据的内容不变。
+
+如果两个 goroutine 仅通过这个数值对同步，`-race` 可能会报告缓冲区上的数据竞争，因为读写数值对的汇编代码未做竞态检测插桩。
+
+`published` 的布局由应用程序定义。在 Linux `io_uring` 的提供缓冲区环中，对第一个描述符做一次 128 位写入，会同时写入字节偏移量 14 处的 16 位环尾索引。`uring.BufferRing.Add` 写入地址、长度和缓冲区 ID，`Advance` 更新环尾索引，将缓冲区发布给内核。 [Linux 缓冲区环布局](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
 
 ## API
 
@@ -85,37 +114,32 @@ CAS 方法分别指定成功和失败时的内存序。
 
 ### 手动屏障（manual barriers）
 
-少数情况下，调用方可能需要在 CAS128 原语之外，显式建立额外的有序边。`dwcas` 提供三个手动屏障：
+在 arm64 上，这些屏障在内部共享域（Inner Shareable）内对写回型共享内存的常规访问进行排序。
 
-- `dwcas.BarrierAcquire`：`arm64` 生成 `DMB ISHLD`；`amd64` 仅为编译器屏障。
-- `dwcas.BarrierRelease` 保证对写回型共享内存进行常规访问时，先前的写入排在后续写入之前。在 `arm64` 上使用 `DMB ISHST`，在 `amd64` 上使用编译器屏障。如需保证先前的读取也排在发布之前，请使用释放存储或成功的释放 CAS 进行发布。
-- `dwcas.BarrierFull`：`arm64` 生成 `DMB ISH`；`amd64` 仅为编译器屏障。
+- `dwcas.BarrierAcquire` 保证先前的读取排在后续的读取和写入之前（`DMB ISHLD`）。
+- `dwcas.BarrierRelease` 保证先前的写入排在后续的写入之前（`DMB ISHST`）。如需让先前的读取也排在发布之前，请使用释放存储或成功的释放 CAS。
+- `dwcas.BarrierFull` 保证先前的读写都排在后续的读写之前（`DMB ISH`）。
+
+在 amd64 上，这三个函数都是编译器屏障。处理器可以把一次读取重排到对另一地址的先前写入之前。
 
 ## 对齐要求
 
-接收者必须指向 16 字节对齐的可写内存。在 arm64 默认后端上，加载和存储要求使用 Inner 和 Outer 均为 Write-Back 的 Normal 内存，例如 Go 堆内存。加载或失败的 CAS 也可能写回观察到的值。
+接收者必须指向 16 字节对齐的可写内存。在 arm64 默认后端上，加载和存储要求使用 Inner 和 Outer 均为 Write-Back 的 Normal 内存，例如 Go 堆内存。加载或失败的 CAS 也可能写回观察到的值。并发访问这个数值对时，请使用它的原子方法。
 
-- 默认构建不做运行时检查。
-- 可选调试保护：使用 `-tags=dwcasdebug` 构建，在 nil 或未对齐时触发 panic。
+默认构建由调用方保证接收者的对齐。使用 `-tags=dwcasdebug` 时，如果接收者为 `nil` 或未按 16 字节对齐，原子方法会触发 panic。
 
 使用 `dwcas.New` 可在 Go 管理的内存中分配按 16 字节对齐的 `*Uint128`。
 
-如果你需要把 `*Uint128` 放在调用方提供的 byte buffer 中（例如手写 arena），请使用 placement helpers。从 `off` 开始的最坏剩余字节需求为 31。
+`CanPlaceAlignedUint128` 检查 `off` 是否非负，以及切片从该偏移量起是否至少还剩 31 字节。若条件不满足，`PlaceAlignedUint128` 会触发 panic。成功时，它返回实际占用的字节数（含对齐填充，共 16 至 31 字节）和对齐后的指针。
 
-```text
+```go
 buf := make([]byte, 256)
 off := 7
-
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-    panic("insufficient space")
-}
 
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-_, _ = v.Relaxed(dwcas.Uint128{Lo: 1, Hi: 2}, dwcas.Uint128{Lo: 3, Hi: 4})
-
-off += n // n is in [16..31]
+off += n
 ```
 
 ## 支持的架构与后端
