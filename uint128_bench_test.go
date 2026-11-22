@@ -150,10 +150,7 @@ func waitHandoffTurn(slot *dwcas.Uint128, parity uint64) dwcas.Uint128 {
 	}
 }
 
-func benchmarkCASContended(b *testing.B, procs int) {
-	old := runtime.GOMAXPROCS(procs)
-	defer runtime.GOMAXPROCS(old)
-
+func BenchmarkCAS_Contended(b *testing.B) {
 	p := dwcas.New(0, 0)
 	a := dwcas.Uint128{Lo: 0, Hi: 0}
 	c := dwcas.Uint128{Lo: 1, Hi: 1}
@@ -172,10 +169,6 @@ func benchmarkCASContended(b *testing.B, procs int) {
 		}
 	})
 }
-
-func BenchmarkCAS_Contended_P2(b *testing.B) { benchmarkCASContended(b, 2) }
-func BenchmarkCAS_Contended_P4(b *testing.B) { benchmarkCASContended(b, 4) }
-func BenchmarkCAS_Contended_P8(b *testing.B) { benchmarkCASContended(b, 8) }
 
 func BenchmarkCAS_VersionedBump_Single(b *testing.B) {
 	// Models a common lock-free pattern: (value, version) updated together.

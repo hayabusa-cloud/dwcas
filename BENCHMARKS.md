@@ -2,6 +2,14 @@
 
 Run `make bench` for the package suite. It includes single-worker loads and stores, shared reads, and matching and mismatching CAS with both result forms.
 
+## Toggle a shared pair
+
+Workers use `Relaxed` to toggle one pair between two values. Each operation counts one successful swap. Set the worker counts with `-cpu`.
+
+```sh
+go test -run='^$' -bench='^BenchmarkCAS_Contended$' -benchmem -benchtime=200ms -count=10 -cpu=2,4,8 .
+```
+
 ## CAS retries under contention
 
 Workers increment both words of one aligned pair. Each successful update provides the worker’s expected value for its next attempt. On a mismatch, `Pair` reuses the pair returned by `AcqRel`. `TryReload` calls `LoadRelaxed` after `TryAcqRel` returns false. Each run checks both final words against the number of completed updates.
