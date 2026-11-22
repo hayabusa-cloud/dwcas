@@ -58,6 +58,8 @@ if span.Hi != 0 {
 
 Dès que le lecteur observe la paire publiée, il peut lire les octets écrits par le producteur. Le producteur conserve leur contenu intact jusqu’à la fin de la lecture.
 
+L’application définit la disposition des champs de `published`. Dans un anneau de tampons fournis à `io_uring` sous Linux, une écriture de 128 bits dans le premier descripteur écrirait aussi l’indice de fin de l’anneau, un champ de 16 bits situé à 14 octets du début du descripteur. `uring.BufferRing.Add` écrit l’adresse, la longueur et l’identifiant du tampon. `Advance` publie les tampons en mettant cet indice à jour. [Structure de l’anneau sous Linux](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
+
 ## APIs
 
 ### Type principal

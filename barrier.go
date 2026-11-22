@@ -13,8 +13,9 @@ func BarrierAcquire() {
 // accesses to write-back shared memory. On arm64 it emits DMB ISHST.
 // On amd64 it is a compiler barrier.
 //
-// When publication must also order earlier loads, use a release store
-// such as [Uint128.StoreRelease] or a successful release CAS.
+// When publication must also order earlier loads, use a release store or a
+// successful release CAS. Match the width of the publication field.
+// [Uint128.StoreRelease] writes the full 16-byte pair.
 func BarrierRelease() {
 	arch.BarrierRelease()
 }
