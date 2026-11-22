@@ -3,10 +3,8 @@
 package dwcas_test
 
 import (
-	"runtime"
 	"sync"
 	"testing"
-	"time"
 
 	"code.hybscloud.com/dwcas"
 )
@@ -68,53 +66,30 @@ func TestCompareExchange_PrevConvergesWithoutExtraLoads(t *testing.T) {
 	}
 }
 
-func TestCAS_Contention_Toggle(t *testing.T) {
-	// This test avoids Go-level loads/stores of *p while contended.
-	// Each goroutine makes progress only via CAS operations.
+func TestCASConcurrentUpdates(t *testing.T) {
+	const writers = 4
+	const updatesPerWriter = 1 << 14
 	p := dwcas.New(0, 0)
-	a := dwcas.Uint128{Lo: 0, Hi: 0}
-	b := dwcas.Uint128{Lo: 1, Hi: 1}
-
-	const (
-		goroutines = 16
-		iters      = 200000
-	)
-
-	// Bound runtime for CI and avoid hangs on unexpected backend issues.
-	deadline := time.After(5 * time.Second)
-	done := make(chan struct{})
-	go func() {
-		var wg sync.WaitGroup
-		wg.Add(goroutines)
-		for range goroutines {
-			go func() {
-				defer wg.Done()
-				for range iters {
-					for {
-						if _, ok := p.Relaxed(a, b); ok {
-							break
-						}
-						if _, ok := p.Relaxed(b, a); ok {
-							break
-						}
-						// Bounded backoff for pathological contention.
-						runtime.Gosched()
-					}
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range writers {
+		wg.Go(func() {
+			<-start
+			for completed := 0; completed < updatesPerWriter; {
+				old := p.LoadRelaxed()
+				next := dwcas.Uint128{Lo: old.Lo + 1, Hi: old.Hi + 2}
+				if p.TryRelaxed(old, next) {
+					completed++
 				}
-			}()
-		}
-		wg.Wait()
-		close(done)
-	}()
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
 
-	select {
-	case <-done:
-		// final value is either a or b; both are valid end states.
-		if (p.Lo == a.Lo && p.Hi == a.Hi) || (p.Lo == b.Lo && p.Hi == b.Hi) {
-			return
-		}
-		t.Fatalf("final state is invalid: got (%d,%d)", p.Lo, p.Hi)
-	case <-deadline:
-		t.Fatalf("contention test timed out")
+	const total = writers * updatesPerWriter
+	want := dwcas.Uint128{Lo: total, Hi: 2 * total}
+	if got := *p; got != want {
+		t.Fatalf("after %d successful swaps, got %v, want %v", total, got, want)
 	}
 }
