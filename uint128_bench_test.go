@@ -143,11 +143,28 @@ func BenchmarkCAS_VersionedBump_Single(b *testing.B) {
 }
 
 func BenchmarkCAS_VersionedBump_Parallel(b *testing.B) {
-	p := dwcas.New(0, 0)
-	b.ReportAllocs()
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
+	run := func(name string, worker func(*dwcas.Uint128, *testing.PB) uint64) {
+		b.Run(name, func(b *testing.B) {
+			p := dwcas.New(0, 0)
+			var retries atomic.Uint64
+			b.ReportAllocs()
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				retries.Add(worker(p, pb))
+			})
+			b.StopTimer()
+
+			want := dwcas.Uint128{Lo: uint64(b.N), Hi: uint64(b.N)}
+			if got := p.LoadRelaxed(); got != want {
+				b.Fatalf("after %d updates got %v, want %v", b.N, got, want)
+			}
+			b.ReportMetric(float64(retries.Load())/float64(b.N), "retries/op")
+		})
+	}
+
+	run("Pair", func(p *dwcas.Uint128, pb *testing.PB) uint64 {
 		var old dwcas.Uint128
+		var retries uint64
 		for pb.Next() {
 			for {
 				next := dwcas.Uint128{Lo: old.Lo + 1, Hi: old.Hi + 1}
@@ -157,15 +174,28 @@ func BenchmarkCAS_VersionedBump_Parallel(b *testing.B) {
 					break
 				}
 				old = prev
+				retries++
 			}
 		}
+		return retries
 	})
-	b.StopTimer()
 
-	want := dwcas.Uint128{Lo: uint64(b.N), Hi: uint64(b.N)}
-	if got := p.LoadRelaxed(); got != want {
-		b.Fatalf("after %d updates got %v, want %v", b.N, got, want)
-	}
+	run("TryReload", func(p *dwcas.Uint128, pb *testing.PB) uint64 {
+		var old dwcas.Uint128
+		var retries uint64
+		for pb.Next() {
+			for {
+				next := dwcas.Uint128{Lo: old.Lo + 1, Hi: old.Hi + 1}
+				if p.TryAcqRel(old, next) {
+					old = next
+					break
+				}
+				old = p.LoadRelaxed()
+				retries++
+			}
+		}
+		return retries
+	})
 }
 
 func BenchmarkAtomicUint64Pair_Baseline(b *testing.B) {
