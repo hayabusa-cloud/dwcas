@@ -46,28 +46,32 @@ func (p *Uint128) StoreRelease(value Uint128) {
 	arch.StoreRelease((*arch.Pair)(p), value)
 }
 
-// TryRelaxed atomically replaces old with new and reports whether they matched.
+// TryRelaxed atomically stores new and returns true if *p equals old.
+// Otherwise it returns false.
 // Success and failure have relaxed ordering.
 func (p *Uint128) TryRelaxed(old, new Uint128) bool {
 	checkAligned(p)
 	return arch.TryRelaxed((*arch.Pair)(p), old, new)
 }
 
-// TryAcquire atomically replaces old with new and reports whether they matched.
+// TryAcquire atomically stores new and returns true if *p equals old.
+// Otherwise it returns false.
 // Success has acquire ordering and failure has relaxed ordering.
 func (p *Uint128) TryAcquire(old, new Uint128) bool {
 	checkAligned(p)
 	return arch.TryAcquire((*arch.Pair)(p), old, new)
 }
 
-// TryRelease atomically replaces old with new and reports whether they matched.
+// TryRelease atomically stores new and returns true if *p equals old.
+// Otherwise it returns false.
 // Success has release ordering and failure has relaxed ordering.
 func (p *Uint128) TryRelease(old, new Uint128) bool {
 	checkAligned(p)
 	return arch.TryRelease((*arch.Pair)(p), old, new)
 }
 
-// TryAcqRel atomically replaces old with new and reports whether they matched.
+// TryAcqRel atomically stores new and returns true if *p equals old.
+// Otherwise it returns false.
 // Success has acquire-release ordering and failure has relaxed ordering.
 func (p *Uint128) TryAcqRel(old, new Uint128) bool {
 	checkAligned(p)
