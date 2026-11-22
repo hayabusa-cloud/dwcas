@@ -3,6 +3,7 @@
 package dwcas_test
 
 import (
+	"errors"
 	"runtime"
 	"sync/atomic"
 	"testing"
@@ -93,6 +94,60 @@ func BenchmarkPairLoadShared(b *testing.B) {
 			p.LoadRelaxed()
 		}
 	})
+}
+
+func BenchmarkPairHandoff(b *testing.B) {
+	// Start with an odd request so the consumer completes one warm-up exchange.
+	slot := dwcas.New(1, ^uint64(1))
+	rounds := b.N
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i <= rounds; i++ {
+			request := waitHandoffTurn(slot, 1)
+			slot.StoreRelease(dwcas.Uint128{Lo: request.Lo + 1, Hi: ^request.Hi})
+		}
+		close(done)
+	}()
+	waitHandoffTurn(slot, 0)
+
+	seq := uint64(1)
+	mismatches := 0
+	b.ReportAllocs()
+	b.ResetTimer()
+	start, startErr := processCPUNanos()
+	for range rounds {
+		seq += 2
+		slot.StoreRelease(dwcas.Uint128{Lo: seq, Hi: ^seq})
+		ack := waitHandoffTurn(slot, 0)
+		if ack.Lo != seq+1 || ack.Hi != seq {
+			mismatches++
+		}
+	}
+	end, endErr := processCPUNanos()
+	b.StopTimer()
+	<-done
+
+	if mismatches != 0 {
+		b.Fatalf("%d of %d acknowledgments had the wrong sequence or check word", mismatches, rounds)
+	}
+	if err := errors.Join(startErr, endErr); err != nil {
+		b.Fatal(err)
+	}
+	if cpu := end - start; cpu > 0 {
+		b.ReportMetric(float64(cpu)/float64(rounds), "cpu-ns/op")
+	}
+}
+
+func waitHandoffTurn(slot *dwcas.Uint128, parity uint64) dwcas.Uint128 {
+	for {
+		for range 8 {
+			pair := slot.LoadAcquire()
+			if pair.Lo&1 == parity {
+				return pair
+			}
+		}
+		runtime.Gosched()
+	}
 }
 
 func benchmarkCASContended(b *testing.B, procs int) {
