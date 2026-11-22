@@ -1,25 +1,28 @@
-// Package dwcas provides a portable 128-bit (double-word) compare-and-swap (CAS)
-// primitive for Go.
-//
-// The core operations are compare-and-swap methods on [Uint128] that perform a
-// single atomic read-modify-write on a contiguous 16-byte value.
+// Package dwcas provides 128-bit (double-word) atomic loads, stores, and
+// compare-and-swap (CAS) on [Uint128].
 //
 // Intended use cases
 //
-//   - Lock-free algorithms that need to atomically update a value and a version/tag
-//     (e.g. ABA mitigation via versioned pointers).
+//   - Lock-free algorithms that pair a slot index with a generation counter
+//     to mitigate ABA when a slot is reused.
 //   - Composite state machines where two 64-bit words must move together.
 //   - Low-level runtime-like data structures (queues, stacks) where a single 128-bit
 //     CAS reduces coordination overhead.
 //
 // # Atomicity and memory ordering
 //
-// Each method is a single atomic 128-bit compare-and-swap on supported
-// architectures.
+// Each method observes or updates both words as one atomic operation.
+// [Uint128.LoadRelaxed] and [Uint128.LoadAcquire] return a coherent snapshot.
+// [Uint128.StoreRelaxed] and [Uint128.StoreRelease] replace the entire pair.
+// When an acquire load observes a release store, accesses before the store
+// are ordered before accesses after the load.
 //
 // # Return values
 //
-// All methods return:
+// [Uint128.TryRelaxed], [Uint128.TryAcquire], [Uint128.TryRelease], and
+// [Uint128.TryAcqRel] return true on a swap and false only on a mismatch. The four
+// compare-exchange methods ([Uint128.Relaxed], [Uint128.Acquire],
+// [Uint128.Release], and [Uint128.AcqRel]) return:
 //   - prev: the value observed in memory at the time of the CAS attempt
 //   - swapped: true if the swap happened
 //
@@ -27,18 +30,16 @@
 //
 // Success ordering vs failure ordering:
 //
-//   - Relaxed: success = relaxed, failure = relaxed
-//   - Acquire: success = acquire, failure = relaxed
-//   - Release: success = release, failure = relaxed
-//   - AcqRel:  success = acq_rel, failure = relaxed
+//   - Relaxed and TryRelaxed: success = relaxed, failure = relaxed
+//   - Acquire and TryAcquire: success = acquire, failure = relaxed
+//   - Release and TryRelease: success = release, failure = relaxed
+//   - AcqRel and TryAcqRel: success = acq_rel, failure = relaxed
 //
 // Some architectures and backends may provide stronger ordering than requested.
 // In particular:
 //   - amd64's LOCKed instructions are at least acquire-release for both success
 //     and failure.
-//   - arm64's default LSE backend uses CASPD plus explicit barriers; release-style
-//     methods place the release barrier before the CAS, which also orders a failed
-//     attempt.
+//   - On arm64, CAS methods with acquire ordering also acquire on a mismatch.
 //
 // # Manual barriers
 //
@@ -50,11 +51,13 @@
 //
 // # Alignment
 //
-// The address of a *Uint128 passed to these methods MUST be 16-byte aligned.
-// Misalignment is unsupported and may fault on some CPUs/instructions.
+// The receiver must point to writable, 16-byte-aligned memory. Default arm64
+// loads and stores require Normal memory with Inner and Outer Write-Back
+// cacheability, as in the Go heap. Some backends write the observed pair back
+// even for a load or a failed CAS.
 //
 // Helpers:
-//   - [New] returns a heap-allocated 16-byte aligned *Uint128.
+//   - [New] allocates a 16-byte-aligned *Uint128 in Go-managed memory.
 //   - [CanPlaceAlignedUint128] / [PlaceAlignedUint128] place a 16-byte aligned
 //     *Uint128 within a caller-provided byte buffer. The worst-case required
 //     remaining bytes from off is 31.
@@ -63,16 +66,21 @@
 // builds. For a debug-only guard, build with `-tags=dwcasdebug` to make these
 // methods panic when called with a misaligned pointer.
 //
-// Architecture support
+// # Architecture support
 //
-//   - amd64: implemented via CMPXCHG16B.
-//   - arm64: implemented via either LSE pair-CAS (CASP family; default) or
-//     LL/SC (opt-in).
-//   - other architectures: building succeeds, but all CAS methods and manual
-//     barriers panic at runtime.
+//   - amd64: CAS uses LOCK CMPXCHG16B. By default, loads use the same instruction
+//     and stores retry it on contention.
+//   - arm64: default builds target FEAT_LSE2. Relaxed loads and stores use
+//     LDP or STP on the receiver. Acquire adds DMB ISHLD after LDP and release
+//     adds DMB ISH before STP. CAS uses CASP, CASPA, CASPL, or CASPAL.
+//   - Other architectures: atomic methods and manual barriers panic.
 //
-// Arm64 backend selection
+// On amd64, -tags=dwcas_avx selects one aligned 128-bit VMOVDQA on the receiver
+// per standalone load or store. This requires OS-enabled AVX and a CPU that
+// guarantees atomic aligned 16-byte vector accesses to write-back memory.
 //
-//   - default: LSE pair-CAS (CASPD plus explicit barriers for ordered methods)
-//   - opt-in: `-tags=dwcas_llsc` (LL/SC via LDXP with STXP or STLXP)
+// On arm64 without FEAT_LSE2, build with -tags=dwcas_llsc. This backend uses
+// exclusive pairs. A load validates its snapshot with a successful write-back.
+// A lost reservation can cause unbounded retries. A Try method returns false
+// as soon as either word differs.
 package dwcas

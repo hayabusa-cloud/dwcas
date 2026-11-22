@@ -9,31 +9,27 @@ import (
 	"code.hybscloud.com/dwcas"
 )
 
-func TestCheckAligned_PanicsOnMisalignment(t *testing.T) {
-	// Construct an 8(mod16) pointer. checkAligned must panic before any dereference.
-	buf := make([]byte, 64)
-	base := uintptr(unsafe.Pointer(unsafe.SliceData(buf)))
-	off := (uintptr(8) - (base & uintptr(15)) + uintptr(16)) & uintptr(15)
-	if off == 0 {
-		off = 8
-	}
-	p := (*dwcas.Uint128)(unsafe.Pointer(unsafe.SliceData(buf[off:])))
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatalf("expected panic for misaligned pointer")
-		}
-	}()
-
-	_, _ = p.AcqRel(dwcas.Uint128{}, dwcas.Uint128{Lo: 1, Hi: 1})
+func misalignedPair() *dwcas.Uint128 {
+	_, aligned := dwcas.PlaceAlignedUint128(make([]byte, 64), 0)
+	return (*dwcas.Uint128)(unsafe.Add(unsafe.Pointer(aligned), 8))
 }
 
-func TestCheckAligned_PanicsOnNilPointer(t *testing.T) {
-	var p *dwcas.Uint128
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatalf("expected panic for nil pointer")
-		}
-	}()
-	_, _ = p.Relaxed(dwcas.Uint128{}, dwcas.Uint128{Lo: 1, Hi: 1})
+func TestTryDebugGuard(t *testing.T) {
+	misaligned := misalignedPair()
+	for _, method := range casMethods {
+		t.Run(method.name, func(t *testing.T) {
+			mustPanic(t, func() { method.try(nil, dwcas.Uint128{}, dwcas.Uint128{}) })
+			mustPanic(t, func() { method.try(misaligned, dwcas.Uint128{}, dwcas.Uint128{}) })
+		})
+	}
+}
+
+func TestPairAccessDebugGuard(t *testing.T) {
+	misaligned := misalignedPair()
+	for _, p := range []*dwcas.Uint128{nil, misaligned} {
+		mustPanic(t, func() { p.LoadRelaxed() })
+		mustPanic(t, func() { p.LoadAcquire() })
+		mustPanic(t, func() { p.StoreRelaxed(dwcas.Uint128{}) })
+		mustPanic(t, func() { p.StoreRelease(dwcas.Uint128{}) })
+	}
 }

@@ -1,3 +1,5 @@
+//go:build amd64 || arm64
+
 package dwcas_test
 
 import (
@@ -6,11 +8,6 @@ import (
 	"testing"
 
 	"code.hybscloud.com/dwcas"
-)
-
-var (
-	sinkPlaceN    int
-	sinkPlaceU128 *dwcas.Uint128
 )
 
 func BenchmarkCAS_Single(b *testing.B) {
@@ -34,22 +31,68 @@ func BenchmarkCAS_Single(b *testing.B) {
 	}
 }
 
-func BenchmarkPlaceAlignedUint128(b *testing.B) {
-	buf := make([]byte, 256)
-	const off = 7
-	if !dwcas.CanPlaceAlignedUint128(buf, off) {
-		b.Fatalf("unexpected: cannot place at off=%d", off)
+func BenchmarkCASResult(b *testing.B) {
+	value := dwcas.Uint128{Lo: 1, Hi: 2}
+	for _, tc := range []struct {
+		name string
+		old  dwcas.Uint128
+	}{
+		{"Match", value},
+		{"Mismatch", dwcas.Uint128{Lo: 1, Hi: 3}},
+	} {
+		b.Run(tc.name+"/Bool", func(b *testing.B) {
+			p := dwcas.New(value.Lo, value.Hi)
+			for b.Loop() {
+				p.TryAcqRel(tc.old, value)
+			}
+		})
+		b.Run(tc.name+"/Pair", func(b *testing.B) {
+			p := dwcas.New(value.Lo, value.Hi)
+			for b.Loop() {
+				p.AcqRel(tc.old, value)
+			}
+		})
 	}
+}
 
+func BenchmarkPairAccess(b *testing.B) {
+	p := dwcas.New(1, 2)
+	value := dwcas.Uint128{Lo: 3, Hi: 4}
+	b.Run("LoadRelaxed", func(b *testing.B) {
+		for b.Loop() {
+			p.LoadRelaxed()
+		}
+	})
+	b.Run("LoadViaCAS", func(b *testing.B) {
+		for b.Loop() {
+			p.Relaxed(dwcas.Uint128{}, dwcas.Uint128{})
+		}
+	})
+	b.Run("LoadAcquire", func(b *testing.B) {
+		for b.Loop() {
+			p.LoadAcquire()
+		}
+	})
+	b.Run("StoreRelaxed", func(b *testing.B) {
+		for b.Loop() {
+			p.StoreRelaxed(value)
+		}
+	})
+	b.Run("StoreRelease", func(b *testing.B) {
+		for b.Loop() {
+			p.StoreRelease(value)
+		}
+	})
+}
+
+func BenchmarkPairLoadShared(b *testing.B) {
+	p := dwcas.New(1, 2)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := range b.N {
-		n, p := dwcas.PlaceAlignedUint128(buf, off)
-		p.Lo = uint64(i)
-		p.Hi = uint64(i)
-		sinkPlaceN = n
-		sinkPlaceU128 = p
-	}
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			p.LoadRelaxed()
+		}
+	})
 }
 
 func benchmarkCASContended(b *testing.B, procs int) {
@@ -85,7 +128,7 @@ func BenchmarkCAS_VersionedBump_Single(b *testing.B) {
 
 	b.ReportAllocs()
 	for range b.N {
-		old := *p
+		old := p.LoadRelaxed()
 		newv := dwcas.Uint128{Lo: old.Lo + 1, Hi: old.Hi + 1}
 		for {
 			prev, ok := p.AcqRel(old, newv)
@@ -96,6 +139,32 @@ func BenchmarkCAS_VersionedBump_Single(b *testing.B) {
 			newv.Lo = old.Lo + 1
 			newv.Hi = old.Hi + 1
 		}
+	}
+}
+
+func BenchmarkCAS_VersionedBump_Parallel(b *testing.B) {
+	p := dwcas.New(0, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		var old dwcas.Uint128
+		for pb.Next() {
+			for {
+				next := dwcas.Uint128{Lo: old.Lo + 1, Hi: old.Hi + 1}
+				prev, swapped := p.AcqRel(old, next)
+				if swapped {
+					old = next
+					break
+				}
+				old = prev
+			}
+		}
+	})
+	b.StopTimer()
+
+	want := dwcas.Uint128{Lo: uint64(b.N), Hi: uint64(b.N)}
+	if got := p.LoadRelaxed(); got != want {
+		b.Fatalf("after %d updates got %v, want %v", b.N, got, want)
 	}
 }
 

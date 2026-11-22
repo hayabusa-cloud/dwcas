@@ -6,18 +6,50 @@
 
 package arch
 
-func Cas128Relaxed(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool) {
+func LoadRelaxed(ptr *Pair) (value Pair) {
 	panic("dwcas: unsupported architecture")
 }
 
-func Cas128Acquire(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool) {
+func LoadAcquire(ptr *Pair) (value Pair) {
 	panic("dwcas: unsupported architecture")
 }
 
-func Cas128Release(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool) {
+func StoreRelaxed(ptr *Pair, value Pair) {
 	panic("dwcas: unsupported architecture")
 }
 
-func Cas128AcqRel(ptr *uint64, oldLo, oldHi, newLo, newHi uint64) (prevLo, prevHi uint64, swapped bool) {
+func StoreRelease(ptr *Pair, value Pair) {
+	panic("dwcas: unsupported architecture")
+}
+
+func TryRelaxed(ptr *Pair, old, new Pair) bool {
+	panic("dwcas: unsupported architecture")
+}
+
+func TryAcquire(ptr *Pair, old, new Pair) bool {
+	panic("dwcas: unsupported architecture")
+}
+
+func TryRelease(ptr *Pair, old, new Pair) bool {
+	panic("dwcas: unsupported architecture")
+}
+
+func TryAcqRel(ptr *Pair, old, new Pair) bool {
+	panic("dwcas: unsupported architecture")
+}
+
+func Cas128Relaxed(ptr *Pair, old, new Pair) (prev Pair, swapped bool) {
+	panic("dwcas: unsupported architecture")
+}
+
+func Cas128Acquire(ptr *Pair, old, new Pair) (prev Pair, swapped bool) {
+	panic("dwcas: unsupported architecture")
+}
+
+func Cas128Release(ptr *Pair, old, new Pair) (prev Pair, swapped bool) {
+	panic("dwcas: unsupported architecture")
+}
+
+func Cas128AcqRel(ptr *Pair, old, new Pair) (prev Pair, swapped bool) {
 	panic("dwcas: unsupported architecture")
 }

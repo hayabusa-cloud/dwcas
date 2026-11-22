@@ -7,6 +7,36 @@ import (
 	"code.hybscloud.com/dwcas"
 )
 
+func TestNew_AlignmentAndInit(t *testing.T) {
+	p := dwcas.New(10, 20)
+	if p == nil {
+		t.Fatalf("New returned nil")
+	}
+	if uintptr(unsafe.Pointer(p))%16 != 0 {
+		t.Fatalf("New returned misaligned pointer: %p", p)
+	}
+	if p.Lo != 10 || p.Hi != 20 {
+		t.Fatalf("New init mismatch: got (%d,%d)", p.Lo, p.Hi)
+	}
+}
+
+func TestNewStackAlignment(t *testing.T) {
+	if bits := newAddressLowBits(12); bits != 0 {
+		t.Fatalf("low address bits from New = %#x, want 0", bits)
+	}
+}
+
+// Vary the stack frame address and retain only the low bits so the pair can
+// stay on the stack when New is inlined.
+func newAddressLowBits(depth int) uintptr {
+	p := dwcas.New(uint64(depth), uint64(depth+1))
+	bits := uintptr(unsafe.Pointer(p)) & 15
+	if depth == 0 {
+		return bits
+	}
+	return bits | newAddressLowBits(depth-1)
+}
+
 func TestCanPlaceAlignedUint128(t *testing.T) {
 	buf := make([]byte, 64)
 
@@ -20,7 +50,7 @@ func TestCanPlaceAlignedUint128(t *testing.T) {
 		{name: "off<0", p: buf, off: -1, want: false},
 		{name: "off>len", p: buf, off: len(buf) + 1, want: false},
 		{name: "off==len", p: buf, off: len(buf), want: false},
-		{name: "insufficient (30)", p: make([]byte, 30), off: 0, want: false},
+		{name: "30 bytes with spare capacity", p: buf[:30], off: 0, want: false},
 		{name: "exact (31)", p: make([]byte, 31), off: 0, want: true},
 		{name: "sufficient", p: buf, off: 0, want: true},
 		{name: "boundary ok", p: buf, off: len(buf) - 31, want: true},
@@ -124,4 +154,27 @@ func itoa(v int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+var (
+	sinkPlaceN    int
+	sinkPlaceU128 *dwcas.Uint128
+)
+
+func BenchmarkPlaceAlignedUint128(b *testing.B) {
+	buf := make([]byte, 256)
+	const off = 7
+	if !dwcas.CanPlaceAlignedUint128(buf, off) {
+		b.Fatalf("unexpected: cannot place at off=%d", off)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := range b.N {
+		n, p := dwcas.PlaceAlignedUint128(buf, off)
+		p.Lo = uint64(i)
+		p.Hi = uint64(i)
+		sinkPlaceN = n
+		sinkPlaceU128 = p
+	}
 }

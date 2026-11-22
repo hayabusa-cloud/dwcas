@@ -3,15 +3,21 @@
 package dwcas
 
 import (
-	"fmt"
+	"strconv"
 	"unsafe"
 )
 
 func checkAligned(p *Uint128) {
-	if p == nil {
-		panic("dwcas: *Uint128 is nil")
+	addr := uintptr(unsafe.Pointer(p))
+	if addr == 0 || addr%16 != 0 {
+		panic(invalidAddressMessage(addr))
 	}
-	if uintptr(unsafe.Pointer(p))%16 != 0 {
-		panic(fmt.Sprintf("dwcas: *Uint128 at %p is not 16-byte aligned", p))
+}
+
+func invalidAddressMessage(addr uintptr) string {
+	if addr == 0 {
+		return "dwcas: *Uint128 is nil"
 	}
+	hex := strconv.FormatUint(uint64(addr), 16)
+	return "dwcas: *Uint128 at 0x" + hex + " is not 16-byte aligned"
 }
