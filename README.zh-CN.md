@@ -58,6 +58,8 @@ if span.Hi != 0 {
 
 消费者读到已发布的数值对后，就可以读取生产者写入的字节。消费者读完之前，生产者须保持这段数据的内容不变。
 
+如果两个 goroutine 仅通过这个数值对同步，`-race` 可能会报告缓冲区上的数据竞争，因为读写数值对的汇编代码未做竞态检测插桩。
+
 `published` 的布局由应用程序定义。在 Linux `io_uring` 的提供缓冲区环中，对第一个描述符做一次 128 位写入，会同时写入字节偏移量 14 处的 16 位环尾索引。`uring.BufferRing.Add` 写入地址、长度和缓冲区 ID，`Advance` 更新环尾索引，将缓冲区发布给内核。 [Linux 缓冲区环布局](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
 
 ## API

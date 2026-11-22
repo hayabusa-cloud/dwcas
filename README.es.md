@@ -58,6 +58,8 @@ if span.Hi != 0 {
 
 Cuando el lector observa el par publicado, puede leer los bytes que escribió el productor. El productor conserva intacta esa zona hasta que el lector termina.
 
+Si las goroutines se sincronizan solo mediante este par, `-race` puede señalar una carrera de datos en el búfer porque las operaciones sobre el par usan ensamblador sin instrumentar.
+
 La aplicación define la disposición de los campos de `published`. En un anillo de búferes proporcionados a `io_uring` en Linux, una escritura de 128 bits en el primer descriptor también escribiría el índice de cola de 16 bits situado a 14 bytes del inicio del descriptor. `uring.BufferRing.Add` escribe la dirección, la longitud y el identificador del búfer. `Advance` actualiza el índice para publicar los búferes. [Estructura del anillo en Linux](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
 
 ## APIs

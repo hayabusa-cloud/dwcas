@@ -58,6 +58,8 @@ if span.Hi != 0 {
 
 When the reader observes the published pair, it can read the initialized bytes. The producer keeps that range unchanged until the reader finishes.
 
+When goroutines synchronize only through this pair, `-race` may report a race on the buffer because the pair operations use uninstrumented assembly.
+
 The application defines the layout of `published`. In a Linux `io_uring` provided-buffer ring, a 128-bit store to the first descriptor would also write the 16-bit ring tail at byte offset 14. `uring.BufferRing.Add` writes the address, length, and buffer ID. `Advance` updates the tail to publish the buffers. [Linux buffer-ring layout](https://github.com/torvalds/linux/blob/v6.18/include/uapi/linux/io_uring.h#L816-L836)
 
 ## APIs

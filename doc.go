@@ -17,6 +17,9 @@
 // When an acquire load observes a release store, accesses before the store
 // are ordered before accesses after the load.
 //
+// The pair operations use uninstrumented assembly. Go's race detector may
+// report a race on data whose accesses are synchronized solely through the pair.
+//
 // # Return values
 //
 // [Uint128.TryRelaxed], [Uint128.TryAcquire], [Uint128.TryRelease], and
