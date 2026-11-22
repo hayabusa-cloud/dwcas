@@ -59,15 +59,13 @@
 // cacheability, as in the Go heap. Some backends write the observed pair back
 // even for a load or a failed CAS.
 //
-// Helpers:
-//   - [New] allocates a 16-byte-aligned *Uint128 in Go-managed memory.
-//   - [CanPlaceAlignedUint128] / [PlaceAlignedUint128] place a 16-byte aligned
-//     *Uint128 within a caller-provided byte buffer. The worst-case required
-//     remaining bytes from off is 31.
+// [New] allocates an aligned pair in Go-managed memory. In a caller-provided
+// byte slice, [PlaceAlignedUint128] requires at least 31 bytes starting at a
+// valid offset and consumes 16 to 31 bytes, including padding. It panics if
+// [CanPlaceAlignedUint128] would return false.
 //
-// This package intentionally does not perform runtime alignment checks in normal
-// builds. For a debug-only guard, build with `-tags=dwcasdebug` to make these
-// methods panic when called with a misaligned pointer.
+// Normal builds leave receiver alignment to the caller. With the dwcasdebug
+// build tag, the atomic methods panic on a nil or misaligned receiver.
 //
 // # Architecture support
 //

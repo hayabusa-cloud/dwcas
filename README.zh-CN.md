@@ -124,25 +124,20 @@ CAS 方法分别指定成功和失败时的内存序。
 
 接收者必须指向 16 字节对齐的可写内存。在 arm64 默认后端上，加载和存储要求使用 Inner 和 Outer 均为 Write-Back 的 Normal 内存，例如 Go 堆内存。加载或失败的 CAS 也可能写回观察到的值。并发访问这个数值对时，请使用它的原子方法。
 
-- 默认构建不做运行时检查。
-- 可选调试保护：使用 `-tags=dwcasdebug` 构建，在 nil 或未对齐时触发 panic。
+默认构建由调用方保证接收者的对齐。使用 `-tags=dwcasdebug` 时，如果接收者为 `nil` 或未按 16 字节对齐，原子方法会触发 panic。
 
 使用 `dwcas.New` 可在 Go 管理的内存中分配按 16 字节对齐的 `*Uint128`。
 
-要在调用方提供的字节缓冲区中放置数值对，从 `off` 开始至少要留出 31 字节。`PlaceAlignedUint128` 返回实际占用的字节数，其中包括对齐填充。
+`CanPlaceAlignedUint128` 检查 `off` 是否非负，以及切片从该偏移量起是否至少还剩 31 字节。若条件不满足，`PlaceAlignedUint128` 会触发 panic。成功时，它返回实际占用的字节数（含对齐填充，共 16 至 31 字节）和对齐后的指针。
 
 ```go
 buf := make([]byte, 256)
 off := 7
 
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-	panic("insufficient space")
-}
-
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-off += n // n is in [16..31]
+off += n
 ```
 
 ## 支持的架构与后端

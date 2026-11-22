@@ -124,25 +124,20 @@ En amd64, las tres funciones actúan como barreras del compilador. El procesador
 
 El receptor debe apuntar a memoria escribible alineada a 16 bytes. En la compilación predeterminada de arm64, las cargas y escrituras requieren memoria Normal con atributos Inner y Outer Write-Back, como la del heap de Go. Una carga o un CAS fallido pueden volver a escribir el valor observado. Usa los métodos atómicos del par para acceder a él de forma concurrente.
 
-- Las compilaciones por defecto no realizan comprobaciones en tiempo de ejecución.
-- Protección de depuración opcional: compila con `-tags=dwcasdebug` para hacer panic en punteros nulos o desalineados.
+En la compilación predeterminada, quien llama garantiza la alineación del receptor. Con `-tags=dwcasdebug`, los métodos atómicos provocan un panic si el receptor es `nil` o está mal alineado.
 
 Usa `dwcas.New` para reservar un `*Uint128` alineado a 16 bytes en memoria gestionada por Go.
 
-Para colocar un par en un búfer de bytes del llamador, deja al menos 31 bytes a partir de `off`. `PlaceAlignedUint128` devuelve el número de bytes consumidos, incluido el relleno de alineación.
+`CanPlaceAlignedUint128` indica si `off` es un valor no negativo y quedan al menos 31 bytes en el slice a partir de ese desplazamiento. Si la comprobación falla, `PlaceAlignedUint128` provoca un panic. Si tiene éxito, devuelve el número de bytes utilizados (entre 16 y 31, incluido el relleno) y el puntero alineado.
 
 ```go
 buf := make([]byte, 256)
 off := 7
 
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-	panic("insufficient space")
-}
-
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-off += n // n is in [16..31]
+off += n
 ```
 
 ## Arquitecturas y backends compatibles

@@ -124,25 +124,20 @@ Sur amd64, les trois fonctions agissent comme des barrières de compilation. Le 
 
 Le récepteur doit pointer vers une zone accessible en écriture et alignée sur 16 octets. Sur arm64, les chargements et écritures du backend par défaut exigent une mémoire Normal avec les attributs Inner et Outer Write-Back, comme celle du tas Go. Un chargement ou un CAS en échec peut réécrire la valeur observée. Pour les accès concurrents, utilisez les méthodes atomiques de la paire.
 
-- Les builds par défaut n'effectuent aucune vérification à l'exécution.
-- Garde de debug optionnelle : compiler avec `-tags=dwcasdebug` pour déclencher un panic sur pointeur nil ou mal aligné.
+Par défaut, l’appelant garantit l’alignement du récepteur. Avec `-tags=dwcasdebug`, les méthodes atomiques déclenchent un panic si le récepteur est `nil` ou mal aligné.
 
 Utilisez `dwcas.New` pour allouer un `*Uint128` aligné sur 16 octets dans la mémoire gérée par Go.
 
-Pour placer une paire dans un tampon fourni par l’appelant, réservez au moins 31 octets à partir de `off`. `PlaceAlignedUint128` renvoie le nombre d’octets consommés, y compris ceux nécessaires à l’alignement.
+`CanPlaceAlignedUint128` indique si `off` est positif ou nul et s’il reste au moins 31 octets dans la tranche à partir de cette position. Si la vérification échoue, `PlaceAlignedUint128` déclenche un panic. En cas de succès, la fonction renvoie le nombre d’octets utilisés (de 16 à 31, alignement compris) et le pointeur aligné.
 
 ```go
 buf := make([]byte, 256)
 off := 7
 
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-	panic("insufficient space")
-}
-
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-off += n // n is in [16..31]
+off += n
 ```
 
 ## Architectures et backends supportés

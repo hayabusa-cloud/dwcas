@@ -124,25 +124,20 @@ On amd64 all three act as compiler barriers. The CPU may reorder a load with an 
 
 The receiver must point to writable, 16-byte-aligned memory. Default arm64 loads and stores require Normal memory with Inner and Outer Write-Back cacheability, as in the Go heap. A load or failed CAS may write back the observed value. Use the atomic methods for concurrent access.
 
-- Default builds perform no runtime checks.
-- Opt-in debug guard: build with `-tags=dwcasdebug` to panic on nil and misaligned pointers.
+Default builds leave receiver alignment to the caller. With `-tags=dwcasdebug`, the atomic methods panic on a nil or misaligned receiver.
 
 Use `dwcas.New` to allocate a 16-byte-aligned `*Uint128` in Go-managed memory.
 
-To place a pair in a caller-owned byte buffer, leave at least 31 bytes from `off`. `PlaceAlignedUint128` returns the number of bytes consumed, including alignment padding.
+`CanPlaceAlignedUint128` reports whether `off` is nonnegative and at least 31 bytes remain in the slice from that offset. `PlaceAlignedUint128` panics if the check fails. On success it returns the byte count (16 to 31, including padding) and the aligned pointer.
 
 ```go
 buf := make([]byte, 256)
 off := 7
 
-if !dwcas.CanPlaceAlignedUint128(buf, off) {
-	panic("insufficient space")
-}
-
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
 
-off += n // n is in [16..31]
+off += n
 ```
 
 ## Supported architectures and backends
