@@ -43,11 +43,14 @@
 //
 // # Manual barriers
 //
-// This package also exposes manual barriers ([BarrierAcquire], [BarrierRelease],
-// [BarrierFull]) for callers who need an explicit ordering edge outside the CAS
-// primitives. On arm64 they map to DMB ISH*; on amd64 they are compiler barriers
-// (not MFENCE). On unsupported architectures, these barrier helpers panic at
-// runtime, like the CAS methods.
+// A ring producer can call [BarrierRelease] after writing descriptors and
+// before storing the new tail. When returning a buffer for reuse, the producer
+// can order both its payload reads and descriptor writes with one release
+// store to the tail.
+//
+// On arm64, [BarrierAcquire], [BarrierRelease], and [BarrierFull] apply to
+// the inner-shareable domain. On amd64 all three are compiler barriers.
+// They panic on other architectures.
 //
 // # Alignment
 //

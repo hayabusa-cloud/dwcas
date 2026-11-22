@@ -4,7 +4,7 @@
 [![Codecov](https://codecov.io/gh/hayabusa-cloud/dwcas/graph/badge.svg)](https://codecov.io/gh/hayabusa-cloud/dwcas)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Idiomas: [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | **Español** | [Français](README.fr.md)
+Idiomas: [English](README.md) | [简体中文](README.zh-CN.md) | **Español** | [日本語](README.ja.md) | [Français](README.fr.md)
 
 Cargas, escrituras y compare-and-swap (CAS) atómicos de 128 bits para Go.
 
@@ -20,18 +20,43 @@ Cargas, escrituras y compare-and-swap (CAS) atómicos de 128 bits para Go.
 go get code.hybscloud.com/dwcas
 ```
 
-## Inicio rápido
+## Ejemplos
 
-```text
-// New returns a 16-byte aligned *Uint128 suitable for 128-bit compare-and-swap.
+### Comparar e intercambiar un par
+
+`dwcas.New` reserva un par alineado a 16 bytes. `AcqRel` devuelve el par observado e indica si lo reemplazó.
+
+```go
 v := dwcas.New(1, 2)
 
 old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.LoadRelaxed())
+fmt.Println(prev, swapped, v.LoadRelaxed()) // {1 2} true {3 4}
 ```
+
+### Publicar un rango de bytes
+
+El productor publica en una sola operación el desplazamiento (`Lo`) y la longitud (`Hi`) de un bloque de datos no vacío, ambos en bytes. Una longitud de cero indica que el descriptor está vacío.
+
+```go
+buffer := make([]byte, 64)
+published := dwcas.New(0, 0)
+
+// Productor
+const offset = 8
+n := copy(buffer[offset:], "hello")
+published.StoreRelease(dwcas.Uint128{Lo: offset, Hi: uint64(n)})
+
+// Lector
+span := published.LoadAcquire()
+if span.Hi != 0 {
+	fmt.Printf("%s\n", buffer[span.Lo:span.Lo+span.Hi])
+}
+```
+
+Cuando el lector observa el par publicado, puede leer los bytes que escribió el productor. El productor conserva intacta esa zona hasta que el lector termina.
 
 ## APIs
 
@@ -85,35 +110,35 @@ Notas:
 
 ### Barreras manuales
 
-En casos raros, el usuario puede necesitar una arista de orden explícita fuera de las primitivas CAS128. `dwcas` proporciona tres barreras manuales:
+En arm64, estas barreras ordenan los accesos ordinarios a la memoria compartida de tipo write-back dentro del dominio inner-shareable.
 
-- `dwcas.BarrierAcquire`: en `arm64` emite `DMB ISHLD`; en `amd64` es solo una barrera del compilador.
-- `dwcas.BarrierRelease` ordena las escrituras anteriores antes de las posteriores en los accesos ordinarios a memoria compartida write-back. Usa `DMB ISHST` en `arm64` y una barrera del compilador en `amd64`. Para ordenar también las lecturas anteriores, publique con una escritura release o un CAS release exitoso.
-- `dwcas.BarrierFull`: en `arm64` emite `DMB ISH`; en `amd64` es solo una barrera del compilador.
+- `dwcas.BarrierAcquire` ordena las lecturas anteriores antes de las lecturas y escrituras posteriores (`DMB ISHLD`).
+- `dwcas.BarrierRelease` ordena las escrituras anteriores antes de las posteriores (`DMB ISHST`). Para ordenar también las lecturas anteriores, publica con una escritura release o con un CAS release que tenga éxito.
+- `dwcas.BarrierFull` ordena todas las lecturas y escrituras anteriores antes de las posteriores (`DMB ISH`).
+
+En amd64, las tres funciones actúan como barreras del compilador. El procesador puede adelantar una lectura a una escritura anterior en otra dirección.
 
 ## Requisito de alineación
 
-El receptor debe apuntar a memoria escribible alineada a 16 bytes. En la compilación predeterminada de arm64, las cargas y escrituras requieren memoria Normal con atributos Inner y Outer Write-Back, como la del heap de Go. Una carga o un CAS fallido pueden volver a escribir el valor observado.
+El receptor debe apuntar a memoria escribible alineada a 16 bytes. En la compilación predeterminada de arm64, las cargas y escrituras requieren memoria Normal con atributos Inner y Outer Write-Back, como la del heap de Go. Una carga o un CAS fallido pueden volver a escribir el valor observado. Usa los métodos atómicos del par para acceder a él de forma concurrente.
 
 - Las compilaciones por defecto no realizan comprobaciones en tiempo de ejecución.
 - Protección de depuración opcional: compila con `-tags=dwcasdebug` para hacer panic en punteros nulos o desalineados.
 
 Usa `dwcas.New` para reservar un `*Uint128` alineado a 16 bytes en memoria gestionada por Go.
 
-Si necesitas colocar un `*Uint128` dentro de un buffer de bytes proporcionado por el usuario (por ejemplo, en un arena manual), usa los helpers de colocación. El peor caso de bytes restantes requeridos desde `off` es 31.
+Para colocar un par en un búfer de bytes del llamador, deja al menos 31 bytes a partir de `off`. `PlaceAlignedUint128` devuelve el número de bytes consumidos, incluido el relleno de alineación.
 
-```text
+```go
 buf := make([]byte, 256)
 off := 7
 
 if !dwcas.CanPlaceAlignedUint128(buf, off) {
-    panic("insufficient space")
+	panic("insufficient space")
 }
 
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
-
-_, _ = v.Relaxed(dwcas.Uint128{Lo: 1, Hi: 2}, dwcas.Uint128{Lo: 3, Hi: 4})
 
 off += n // n is in [16..31]
 ```

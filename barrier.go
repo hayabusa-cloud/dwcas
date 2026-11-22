@@ -2,16 +2,9 @@ package dwcas
 
 import "code.hybscloud.com/dwcas/internal/arch"
 
-// BarrierAcquire emits an acquire barrier.
-//
-// This API is intentionally rare and expert-only. Prefer the ordering variants of
-// [Uint128] CAS methods when possible.
-//
-// Semantics by architecture:
-//
-//   - arm64: emits DMB ISHLD.
-//   - amd64: compiler barrier only (prevents compile-time reordering across the
-//     call). It is not an MFENCE and is not required for cache coherence.
+// BarrierAcquire orders earlier loads before later loads and stores for ordinary
+// accesses to write-back shared memory. On arm64 it emits DMB ISHLD.
+// On amd64 it is a compiler barrier.
 func BarrierAcquire() {
 	arch.BarrierAcquire()
 }
@@ -26,16 +19,9 @@ func BarrierRelease() {
 	arch.BarrierRelease()
 }
 
-// BarrierFull emits a full barrier.
-//
-// This API is intentionally rare and expert-only. Prefer the ordering variants of
-// [Uint128] CAS methods when possible.
-//
-// Semantics by architecture:
-//
-//   - arm64: emits DMB ISH.
-//   - amd64: compiler barrier only (prevents compile-time reordering across the
-//     call). It is not an MFENCE and is not required for cache coherence.
+// BarrierFull emits DMB ISH on arm64 and acts as a compiler barrier on amd64.
+// On amd64, the CPU may reorder a load with an earlier store to a different
+// address.
 func BarrierFull() {
 	arch.BarrierFull()
 }

@@ -4,7 +4,7 @@
 [![Codecov](https://codecov.io/gh/hayabusa-cloud/dwcas/graph/badge.svg)](https://codecov.io/gh/hayabusa-cloud/dwcas)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Languages:** English | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Français](README.fr.md)
+**Languages:** English | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [日本語](README.ja.md) | [Français](README.fr.md)
 
 128-bit (double-word) atomic loads, stores, and compare-and-swap (CAS) for Go.
 
@@ -20,18 +20,43 @@
 go get code.hybscloud.com/dwcas
 ```
 
-## Quick start
+## Examples
 
-```text
-// New returns a 16-byte aligned *Uint128 suitable for 128-bit compare-and-swap.
+### Compare and swap a pair
+
+`dwcas.New` allocates a 16-byte-aligned pair. `AcqRel` returns the pair it observed and whether it replaced it.
+
+```go
 v := dwcas.New(1, 2)
 
 old := dwcas.Uint128{Lo: 1, Hi: 2}
 newv := dwcas.Uint128{Lo: 3, Hi: 4}
 
 prev, swapped := v.AcqRel(old, newv)
-fmt.Println(prev, swapped, v.LoadRelaxed())
+fmt.Println(prev, swapped, v.LoadRelaxed()) // {1 2} true {3 4}
 ```
+
+### Publish a buffer range
+
+A producer publishes the byte offset (`Lo`) and length (`Hi`) of a nonempty payload together. A zero length marks an empty descriptor.
+
+```go
+buffer := make([]byte, 64)
+published := dwcas.New(0, 0)
+
+// Producer
+const offset = 8
+n := copy(buffer[offset:], "hello")
+published.StoreRelease(dwcas.Uint128{Lo: offset, Hi: uint64(n)})
+
+// Reader
+span := published.LoadAcquire()
+if span.Hi != 0 {
+	fmt.Printf("%s\n", buffer[span.Lo:span.Lo+span.Hi])
+}
+```
+
+When the reader observes the published pair, it can read the initialized bytes. The producer keeps that range unchanged until the reader finishes.
 
 ## APIs
 
@@ -80,22 +105,18 @@ The CAS methods specify separate success and failure orderings.
 Notes:
 
 - Some backends are stronger than requested.
-  - On `amd64`, `LOCK`ed operations are at least acquire-release on both success
-    and failure.
+  - On `amd64`, `LOCK`ed operations are at least acquire-release on both success and failure.
   - On arm64, CAS methods with acquire ordering also acquire on a mismatch.
 
 ### Manual barriers
 
-In rare cases, a caller may need an explicit ordering edge outside the CAS128
-primitives. `dwcas` provides three manual barriers:
+On arm64, these barriers order ordinary accesses to write-back shared memory within the inner-shareable domain.
 
-- `dwcas.BarrierAcquire`: arm64 emits `DMB ISHLD`; amd64 is a compiler barrier
-  only.
-- `dwcas.BarrierRelease` orders earlier stores before later stores for ordinary
-  accesses to write-back shared memory. It uses `DMB ISHST` on arm64 and a
-  compiler barrier on amd64. To order earlier loads as well, publish with a
-  release store or a successful release CAS.
-- `dwcas.BarrierFull`: arm64 emits `DMB ISH`; amd64 is a compiler barrier only.
+- `dwcas.BarrierAcquire` orders earlier loads before later loads and stores (`DMB ISHLD`).
+- `dwcas.BarrierRelease` orders earlier stores before later stores (`DMB ISHST`). To order earlier reads as well, publish with a release store or a successful release CAS.
+- `dwcas.BarrierFull` orders earlier loads and stores before later loads and stores (`DMB ISH`).
+
+On amd64 all three act as compiler barriers. The CPU may reorder a load with an earlier store to a different address.
 
 ## Alignment requirement
 
@@ -106,11 +127,9 @@ The receiver must point to writable, 16-byte-aligned memory. Default arm64 loads
 
 Use `dwcas.New` to allocate a 16-byte-aligned `*Uint128` in Go-managed memory.
 
-If you need to place a `*Uint128` inside a caller-provided byte buffer (for
-example, in a manually managed arena), use the placement helpers. Worst-case
-required remaining bytes from `off` is 31.
+To place a pair in a caller-owned byte buffer, leave at least 31 bytes from `off`. `PlaceAlignedUint128` returns the number of bytes consumed, including alignment padding.
 
-```text
+```go
 buf := make([]byte, 256)
 off := 7
 
@@ -120,8 +139,6 @@ if !dwcas.CanPlaceAlignedUint128(buf, off) {
 
 n, v := dwcas.PlaceAlignedUint128(buf, off)
 *v = dwcas.Uint128{Lo: 1, Hi: 2}
-
-_, _ = v.Relaxed(dwcas.Uint128{Lo: 1, Hi: 2}, dwcas.Uint128{Lo: 3, Hi: 4})
 
 off += n // n is in [16..31]
 ```
@@ -138,11 +155,9 @@ off += n // n is in [16..31]
 
 `dwcas` uses `unsafe` and architecture-specific assembly.
 
-- Keep a `*Uint128` reachable as a Go pointer. Do not convert it to `uintptr` and
-  back, and do not store it in untracked memory.
+- Keep a `*Uint128` reachable as a Go pointer. Do not convert it to `uintptr` and back, and do not store it in untracked memory.
 - The garbage collector can reclaim a Go object whose address is stored only in `Lo` or `Hi`. A queue can keep pointers in a reachable slice and store a slot index and generation in the pair.
-- A copied `Uint128` value does not carry alignment guarantees. Alignment is a
-  property of the address you pass to these methods.
+- A copied `Uint128` value does not carry alignment guarantees. Alignment is a property of the address you pass to these methods.
 
 ## License
 
